@@ -1,0 +1,112 @@
+{
+  "common": {
+    "name": "navimow",
+    "version": "0.0.1",
+    "news": {
+      "0.0.1": {
+        "en": "initial release",
+        "de": "Erstveröffentlichung",
+        "ru": "Начальная версия",
+        "pt": "lançamento inicial",
+        "nl": "Eerste uitgave",
+        "fr": "Première version",
+        "it": "Versione iniziale",
+        "es": "Versión inicial",
+        "pl": "Pierwsze wydanie",
+        "uk": "Початкова версія",
+        "zh-cn": "首次出版"
+      }
+    },
+    "title": "NaviMow",
+    "titleLang": {
+      "en": "NaviMow",
+      "de": "NaviMow",
+      "ru": "НавиМоу",
+      "pt": "NaviMow",
+      "nl": "NaviMow",
+      "fr": "NaviMow",
+      "it": "NaviMow",
+      "es": "NaviMow",
+      "pl": "NaviMow",
+      "uk": "NaviMow",
+      "zh-cn": "导航软件"
+    },
+    "desc": {
+      "en": "Adapter for NaviMower from Segway",
+      "de": "Adapter für NaviMower von Segway",
+      "ru": "Адаптер для NaviMower от Segway",
+      "pt": "Adaptador para NaviMower da Segway",
+      "nl": "Adapter voor NaviMower van Segway",
+      "fr": "Adaptateur pour NaviMower de Segway",
+      "it": "Adattatore per NaviMower di Segway",
+      "es": "Adaptador para NaviMower de Segway",
+      "pl": "Adapter do kosiarki NaviMower firmy Segway",
+      "uk": "Адаптер для NaviMower від Segway",
+      "zh-cn": "Segway 的 NaviMower 适配器"
+    },
+    "authors": ["TA2k <tombox2020@gmail.com>"],
+    "keywords": ["navimower", "segway"],
+    "license": "MIT",
+    "platform": "Javascript/Node.js",
+    "main": "main.js",
+    "icon": "navimow.png",
+    "enabled": true,
+    "extIcon": "https://raw.githubusercontent.com/TA2k/ioBroker.navimow/main/admin/navimow.png",
+    "readme": "https://github.com/TA2k/ioBroker.navimow/blob/main/README.md",
+    "loglevel": "info",
+    "mode": "daemon",
+    "type": "garden",
+    "compact": true,
+    "connectionType": "cloud",
+    "dataSource": "poll",
+    "adminUI": {
+      "config": "json"
+    },
+    "plugins": {
+      "sentry": {
+        "dsn": "https://c9bd6c851b1246da95e6e982aa9b88f3@sentry.iobroker.net/152"
+      }
+    },
+    "dependencies": [
+      {
+        "js-controller": ">=3.3.22"
+      }
+    ],
+    "globalDependencies": [
+      {
+        "admin": ">=5.2.28"
+      }
+    ]
+  },
+  "encryptedNative": ["password"],
+  "protectedNative": ["password"],
+  "native": {
+    "username": "",
+    "password": "",
+    "interval": 10
+  },
+  "objects": [],
+  "instanceObjects": [
+    {
+      "_id": "info",
+      "type": "channel",
+      "common": {
+        "name": "Information"
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.connection",
+      "type": "state",
+      "common": {
+        "role": "indicator.connected",
+        "name": "Device or service connected",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    }
+  ]
+}
