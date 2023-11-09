@@ -81,9 +81,41 @@ class Navimow extends utils.Adapter {
     return crypto.createHash('sha256').update(payload).digest('hex');
   }
   async createRequest() {
+    //cn.ninebot.nbcrypto.NbEncryption
+    //  System.loadLibrary("nbcrypto");
+    //    public native int crypto_encrypt(byte[] bArr, int i, byte[] bArr2);
+    // RSA ECB PKCS1Padding
+    //KEY: 30819f300d06092a864886f70d010101050003818d0030818902818100d1884aab08c139488d9eafd07e643c1e29619e4d69cc9f67451bcaedf8cea2283bf82ee8b8a7a05d1d7d9d6d380244736924dcf5b40b0e1923df726708906c6ddf1f9a82ce58126a6442ad33118052c3c4ad8a7d9655a3eb52eaf4d1d118af4aa536a0d621b308b83386e79e12935d6652363faf3374f93c49e5836c53791bc10203010001xq
+    //AES CTR
+    //     AES/CTR/NoPadding key Base64:BBBeRCQotUa6UxMSCrBowVPA
+    // AES/CTR/NoPadding key Hex:04105e442428b546ba5313120ab068c153c0
+    // AES/CTR/NoPadding iv Base64:XkQkKLVGulMTEgqwaMFTwA==
+    // AES/CTR/NoPadding iv Hex:5e442428b546ba5313120ab068c153c0
+    // AES/CTR/NoPadding doFinal param Utf8:EncryptedSPInitialized
+    // AES/CTR/NoPadding doFinal result Hex:aa2a07cb3cd6dcb4fa2f3a592109bd028008f53a4c7b
+    //POST https://navimow-fra.ninebot.com/vehicle/vehicle/index
     //h = MD5 Hash of the payload
     //k = clientKey
-    //d = postdata
+    //d = postdata = AES 128 key: 66 b9 24 37 f7 d5 f4 c4 c1 32 c7 74 fa e9 18 86
+    //aes key and four key is changing
+    /*
+     {"keyDataTwo":"5K0E8400-E29","data":"eyJjdXJyZW50X3ZlcnNpb24iO","platform":1,"keyDataOne":"segway.mower","timeStamp":1696799374783,"keyDataThree":"321A2EF1F010","keyDataFour":"52428.278076"}
+     data:
+     {"current_version":104090001,"checkcode":"1a478b9dcf053990c1900294a834cbff","platform":"iOS","vehicle_type":"20000001","vehicle_sn":"XXXXXX","language":"de","device_id":"XXX-xx-xxx-xxxx-XXXXXXX","serviceTime":1696799373292.8428,"ostype":"ios","platform_ver":"14.8","client_ver":104090001,"access_token":"x.x.w3-x-x","uid":"268XXX"}
+    {"keyDataTwo":"5K0E8400-E29","data":"eyJ1a","platform":1,"keyDataOne":"segway.mower","timeStamp":1696801738116,"keyDataThree":"321A2EF1F010","keyDataFour":"75647.981201"}
+    
+    
+     */
+  }
+  async decryptResponse() {
+    /*
+
+Value In: DY16mYCgyyHQ4VG4jYVR0btYFTQQJpJ/SRcPi3CyERusU1vWet/yIz3AmSXRa9k1iRwFbF7nZH7taH991MQGEz1/JTwi282AIbTH6S3RBZdgXIFmX9/U9+ylfS2u3gJvEdEKDoi408oR0BayH0tMbw==
+Key: 45mR0bbO5t7v6d3/IUskGgAAAAAAAAAAAAAAAAAAAAA=
+IV: 
+Value Out: eyJkYXRhIjoiZXlKamIyUmxJam94TENKa1lYUmhJam96TENKa1pYTmpJam9pVm05eVoyRnVaeUJsY21admJHZHlaV2xqYUNKOSIsInRpbWVTdGFtcCI6MTY5NjgwMTY3ODM1N33//38AAAAAAAAAAP//////////AAAAAAAAAAA=
+
+    */
   }
   async login() {
     const data = {
