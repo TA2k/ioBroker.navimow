@@ -53,12 +53,9 @@ class Navimow extends utils.Adapter {
     if (this.session.access_token) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(
-        async () => {
-          await this.updateDevices();
-        },
-        this.config.interval * 60 * 1000,
-      );
+      this.updateInterval = setInterval(async () => {
+        await this.updateDevices();
+      }, this.config.interval * 60 * 1000);
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expires_in) {
@@ -68,7 +65,7 @@ class Navimow extends utils.Adapter {
       this.refreshToken();
     }, expireTimeout);
   }
-  async createSignature(data) {
+  createSignature(data) {
     data.clientKey = 'ZV4B4KpBwymR';
     data.device = 'ANDROID';
 
@@ -77,8 +74,11 @@ class Navimow extends utils.Adapter {
     keys.forEach((key) => {
       payload = payload + key + '=' + data[key] + '&';
     });
+    payload = payload.slice(0, -1);
     //hash 256
-    return crypto.createHash('sha256').update(payload).digest('hex');
+    this.log.debug(payload);
+    const hash = crypto.createHash('sha256').update(payload).digest('hex');
+    return hash;
   }
   async createRequest() {
     //cn.ninebot.nbcrypto.NbEncryption
@@ -142,6 +142,11 @@ Value Out: eyJkYXRhIjoiZXlKamIyUmxJam94TENKa1lYUmhJam96TENKa1pYTmpJam9pVm05eVoyR
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
+        if (res.data.resultCode != '90000') {
+          this.log.error('Login failed');
+          this.log.error(JSON.stringify(res.data));
+          return;
+        }
         this.session = res.data;
         this.log.info('Login successful');
         this.setState('info.connection', true, true);
