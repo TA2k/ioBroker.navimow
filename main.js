@@ -106,8 +106,8 @@ class Navimow extends utils.Adapter {
      data:
      {"current_version":104090001,"checkcode":"1a478b9dcf053990c1900294a834cbff","platform":"iOS","vehicle_type":"20000001","vehicle_sn":"XXXXXX","language":"de","device_id":"XXX-xx-xxx-xxxx-XXXXXXX","serviceTime":1696799373292.8428,"ostype":"ios","platform_ver":"14.8","client_ver":104090001,"access_token":"x.x.w3-x-x","uid":"268XXX"}
     {"keyDataTwo":"5K0E8400-E29","data":"eyJ1a","platform":1,"keyDataOne":"segway.mower","timeStamp":1696801738116,"keyDataThree":"321A2EF1F010","keyDataFour":"75647.981201"}
-    
-    
+
+
      */
   }
   async decryptResponse() {
@@ -115,7 +115,7 @@ class Navimow extends utils.Adapter {
 
 Value In: DY16mYCgyyHQ4VG4jYVR0btYFTQQJpJ/SRcPi3CyERusU1vWet/yIz3AmSXRa9k1iRwFbF7nZH7taH991MQGEz1/JTwi282AIbTH6S3RBZdgXIFmX9/U9+ylfS2u3gJvEdEKDoi408oR0BayH0tMbw==
 Key: 45mR0bbO5t7v6d3/IUskGgAAAAAAAAAAAAAAAAAAAAA=
-IV: 
+IV:
 Value Out: eyJkYXRhIjoiZXlKamIyUmxJam94TENKa1lYUmhJam96TENKa1pYTmpJam9pVm05eVoyRnVaeUJsY21admJHZHlaV2xqYUNKOSIsInRpbWVTdGFtcCI6MTY5NjgwMTY3ODM1N33//38AAAAAAAAAAP//////////AAAAAAAAAAA=
 
     */
