@@ -76,6 +76,62 @@ Custom crypto:
 
 libnbcrypto.so
 
+Function extracted with Ghidra:
+
+```
+AES*ECB_decrypt
+AES_ECB_encrypt
+AES_init_ctx
+AsciiToHex
+array2String
+BKDRHash
+crypto*
+crypto*get_version
+crypto_start_once_sn
+entry
+FUN_001
+initParams
+Java_cn_ninebot_nbcrypto_NbEncryption*
+Java*cn_ninebot_nbcrypto_NbEncryption_crypto_1decrypt
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1encrypt
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1init
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1reset_1sn
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1setAuthParam
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1setKey
+Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1start_1sn
+Java_cn_ninebot_nbcrypto_NbEncryption_getDate
+Java_cn_ninebot_nbcrypto_NbEncryption_getVersion
+Java_cn_ninebot_nbcrypto_NbEncryption_hash
+Java_cn_ninebot_nbcrypto_NbEncryption_setData
+Key_rule_analysis
+mbedtls*
+mbedtls*internal_sha1_process
+mbedtls_sha1
+mbedtls_sha1_clone
+mbedtls_sha1_finish
+mbedtls_sha1_finish_ret
+mbedtls_sha1_free
+mbedtls_sha1_init
+mbedtls_sha1_process
+mbedtls_sha1_ret
+mbedtls_sha1_starts
+mbedtls_sha1_starts_ret
+mbedtls_sha1_update
+mbedtls_sha1_update_ret
+nb*
+nb_crypto_init
+nb_decrypt
+nb_encrypt
+operator.
+r
+rc4_crypt
+rc4_setup
+resetParams
+set
+setAuthParam
+setKeys
+```
+
 ## Changelog
 
 ### 0.0.1
