@@ -53,9 +53,12 @@ class Navimow extends utils.Adapter {
     if (this.session.access_token) {
       await this.getDeviceList();
       await this.updateDevices();
-      this.updateInterval = setInterval(async () => {
-        await this.updateDevices();
-      }, this.config.interval * 60 * 1000);
+      this.updateInterval = setInterval(
+        async () => {
+          await this.updateDevices();
+        },
+        this.config.interval * 60 * 1000,
+      );
     }
     let expireTimeout = 30 * 60 * 60 * 1000;
     if (this.session.expires_in) {
