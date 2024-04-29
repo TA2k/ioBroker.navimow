@@ -132,6 +132,8 @@ setAuthParam
 setKeys
 ```
 
+The idea is to use the .so file as it is or reverse engineering the methods
+
 ## Changelog
 
 ### 0.0.1
