@@ -134,6 +134,10 @@ setKeys
 
 The idea is to use the .so file as it is or reverse engineering the methods
 
+This is an example to use a .so file in a docker
+
+https://github.com/Hacksore/hyundai-kia-stamp/tree/arm
+
 ## Changelog
 
 ### 0.0.1
