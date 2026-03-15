@@ -180,7 +180,7 @@ class Navimow extends utils.Adapter {
           this.log.warn('Failed to get MQTT info: ' + JSON.stringify(res.data));
           return;
         }
-        const mqttInfo = res.data.data || {};
+        const mqttInfo = res.data.data ?? {};
         const mqttUrlRaw = mqttInfo.mqttUrl;
         const mqttHost = mqttInfo.mqttHost || 'mqtt.navimow.com';
         const mqttUsername = mqttInfo.userName;
@@ -391,9 +391,6 @@ class Navimow extends utils.Adapter {
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
-        if (res.data && res.data.data && res.data.data.access_token) {
-          return res.data.data;
-        }
         if (res.data && res.data.access_token) {
           return res.data;
         }
@@ -422,9 +419,6 @@ class Navimow extends utils.Adapter {
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
-        if (res.data && res.data.data && res.data.data.access_token) {
-          return res.data.data;
-        }
         if (res.data && res.data.access_token) {
           return res.data;
         }
@@ -479,9 +473,7 @@ class Navimow extends utils.Adapter {
           this.log.error('getDeviceList failed: ' + (res.data.desc || JSON.stringify(res.data)));
           return;
         }
-        const payload = res.data && res.data.data && res.data.data.payload;
-        const devices = (payload && payload.devices) || [];
-
+        const devices = res.data.data?.payload?.devices || [];
         if (devices.length === 0) {
           this.log.warn('No devices found');
           return;
@@ -574,8 +566,7 @@ class Navimow extends utils.Adapter {
           );
           return;
         }
-        const payload = res.data.data && res.data.data.payload;
-        const devices = (payload && payload.devices) || [];
+        const devices = res.data.data?.payload?.devices || [];
 
         for (const deviceData of devices) {
           const id = deviceData.id || deviceData.device_id;
@@ -642,8 +633,7 @@ class Navimow extends utils.Adapter {
           );
           return;
         }
-        const payload = res.data.data && res.data.data.payload;
-        const results = (payload && payload.commands) || [];
+        const results = res.data.data?.payload?.commands || [];
         for (const result of results) {
           if (result.status === 'ERROR' && result.errorCode !== 'alreadyInState') {
             this.log.error('Command error: ' + (result.errorCode || 'unknown'));
