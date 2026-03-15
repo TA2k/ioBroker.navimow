@@ -182,7 +182,14 @@ class Navimow extends utils.Adapter {
         }
         const mqttInfo = res.data.data ?? {};
         const mqttUrlRaw = mqttInfo.mqttUrl;
-        const mqttHost = mqttInfo.mqttHost || 'mqtt.navimow.com';
+        // Parse hostname from mqttHost (may contain scheme like wss://host)
+        let mqttHost = mqttInfo.mqttHost || 'mqtt.navimow.com';
+        try {
+          const parsedHost = new URL(mqttHost);
+          mqttHost = parsedHost.hostname || mqttHost;
+        } catch {
+          // already a plain hostname
+        }
         const mqttUsername = mqttInfo.userName;
         const mqttPassword = mqttInfo.pwdInfo;
 
