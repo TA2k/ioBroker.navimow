@@ -22,7 +22,7 @@
     },
     "_oauth_link": {
       "type": "staticLink",
-      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code",
+      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=https%3A%2F%2Fmy.home-assistant.io%2Fredirect%2Foauth",
       "label": {
         "en": "Open Navimow Login",
         "de": "Navimow Login öffnen"
