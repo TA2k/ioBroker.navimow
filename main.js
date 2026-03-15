@@ -13,7 +13,7 @@ const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
 const CLIENT_ID = 'homeassistant';
 const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
-const REDIRECT_URI = 'http://localhost:1/callback';
+
 
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
@@ -384,7 +384,6 @@ class Navimow extends utils.Adapter {
         code: code,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
       },
     })
       .then((res) => {

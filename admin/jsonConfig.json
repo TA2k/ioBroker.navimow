@@ -1,4 +1,5 @@
 {
+  "type": "panel",
   "i18n": false,
   "items": {
     "_oauth_header": {
@@ -13,15 +14,15 @@
     "_oauth_info": {
       "type": "staticText",
       "text": {
-        "en": "1. Click the login link below and login with your Navimow account<br>2. After login the browser shows <b>Page not reachable</b> - this is expected<br>3. Copy the complete URL from the browser address bar<br><i>Example: http://localhost:1/callback?code=<b>XXXXX</b></i><br>4. Paste the URL below and save",
-        "de": "1. Klicke auf den Login-Link unten und melde dich mit deinem Navimow-Konto an<br>2. Nach dem Login zeigt der Browser <b>Seite nicht erreichbar</b> - das ist normal<br>3. Kopiere die komplette URL aus der Browser-Adressleiste<br><i>Beispiel: http://localhost:1/callback?code=<b>XXXXX</b></i><br>4. Füge die URL unten ein und speichere"
+        "en": "1. Click the login link below and login with your Navimow account<br>2. After login you will be redirected - copy the complete URL from the browser address bar<br><i>The URL contains <b>?code=XXXXX</b></i><br>3. Paste the URL below and save",
+        "de": "1. Klicke auf den Login-Link unten und melde dich mit deinem Navimow-Konto an<br>2. Nach dem Login wirst du weitergeleitet - kopiere die komplette URL aus der Browser-Adressleiste<br><i>Die URL enthält <b>?code=XXXXX</b></i><br>3. Füge die URL unten ein und speichere"
       },
       "newLine": true,
       "sm": 12
     },
     "_oauth_link": {
       "type": "staticLink",
-      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback",
+      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code",
       "label": {
         "en": "Open Navimow Login",
         "de": "Navimow Login öffnen"
