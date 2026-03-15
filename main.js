@@ -5,7 +5,7 @@ const axios = require('axios');
 const Json2iob = require('json2iob');
 const crypto = require('crypto');
 const mqtt = require('mqtt');
-const { URL, URLSearchParams } = require('url');
+const { URL } = require('url');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
 
@@ -376,15 +376,16 @@ class Navimow extends utils.Adapter {
 
   exchangeCodeForToken(code) {
     this.log.debug('Exchanging auth code for token (code length: ' + code.length + ')');
-    const params = new URLSearchParams();
-    params.append('grant_type', 'authorization_code');
-    params.append('code', code);
-    params.append('client_id', CLIENT_ID);
-    params.append('client_secret', CLIENT_SECRET);
     return this.requestClient({
       method: 'post',
       url: OAUTH2_TOKEN_URL,
-      data: params,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data: {
+        grant_type: 'authorization_code',
+        code: code,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      },
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
@@ -406,15 +407,16 @@ class Navimow extends utils.Adapter {
 
   refreshToken(refreshTokenValue) {
     this.log.debug('Refreshing token...');
-    const params = new URLSearchParams();
-    params.append('grant_type', 'refresh_token');
-    params.append('refresh_token', refreshTokenValue);
-    params.append('client_id', CLIENT_ID);
-    params.append('client_secret', CLIENT_SECRET);
     return this.requestClient({
       method: 'post',
       url: OAUTH2_TOKEN_URL,
-      data: params,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data: {
+        grant_type: 'refresh_token',
+        refresh_token: refreshTokenValue,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+      },
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
