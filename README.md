@@ -6,6 +6,10 @@
 [![Downloads](https://img.shields.io/npm/dm/iobroker.navimow.svg)](https://www.npmjs.com/package/iobroker.navimow)
 ![Number of Installations](https://iobroker.live/badges/navimow-installed.svg)
 ![Current version in stable repository](https://iobroker.live/badges/navimow-stable.svg)
+[![GitHub license](https://img.shields.io/github/license/TA2k/ioBroker.navimow)](https://github.com/TA2k/ioBroker.navimow/blob/main/LICENSE)
+[![GitHub issues](https://img.shields.io/github/issues/TA2k/ioBroker.navimow)](https://github.com/TA2k/ioBroker.navimow/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/TA2k/ioBroker.navimow)](https://github.com/TA2k/ioBroker.navimow/commits/main)
+[![node](https://img.shields.io/node/v/iobroker.navimow)](https://www.npmjs.com/package/iobroker.navimow)
 
 [![NPM](https://nodei.co/npm/iobroker.navimow.png?downloads=true)](https://nodei.co/npm/iobroker.navimow/)
 
@@ -39,25 +43,25 @@ The token is refreshed automatically. A re-login is only needed if the refresh t
 
 For each mower device the following channels are created:
 
-| Channel | Description |
-| --- | --- |
-| `{deviceId}.general` | Device info (name, model, serial number, firmware) |
-| `{deviceId}.status` | Current status (vehicleState, battery, position, signal) |
-| `{deviceId}.status.json` | Raw JSON of the last status update |
-| `{deviceId}.events` | MQTT events |
-| `{deviceId}.attributes` | MQTT device attributes |
-| `{deviceId}.remote` | Remote control buttons |
+| Channel                  | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| `{deviceId}.general`     | Device info (name, model, serial number, firmware)       |
+| `{deviceId}.status`      | Current status (vehicleState, battery, position, signal) |
+| `{deviceId}.status.json` | Raw JSON of the last status update                       |
+| `{deviceId}.events`      | MQTT events                                              |
+| `{deviceId}.attributes`  | MQTT device attributes                                   |
+| `{deviceId}.remote`      | Remote control buttons                                   |
 
 ### Remote Controls
 
-| State | Description |
-| --- | --- |
+| State            | Description                     |
+| ---------------- | ------------------------------- |
 | `remote.Refresh` | Trigger a manual status refresh |
-| `remote.start` | Start mowing |
-| `remote.stop` | Stop mowing |
-| `remote.pause` | Pause mowing |
-| `remote.resume` | Resume mowing |
-| `remote.dock` | Return to dock |
+| `remote.start`   | Start mowing                    |
+| `remote.stop`    | Stop mowing                     |
+| `remote.pause`   | Pause mowing                    |
+| `remote.resume`  | Resume mowing                   |
+| `remote.dock`    | Return to dock                  |
 
 Remote states reflect the current device state with `ack:true`. For example, when the mower is mowing, `remote.start` is `true`.
 
@@ -65,13 +69,13 @@ Remote states reflect the current device state with `ack:true`. For example, whe
 
 Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA).
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /openapi/oauth/getAccessToken` | OAuth2 token exchange and refresh |
-| `GET /openapi/smarthome/authList` | Discover devices |
-| `POST /openapi/smarthome/getVehicleStatus` | Get device status |
-| `POST /openapi/smarthome/sendCommands` | Send commands (Google Smart Home protocol) |
-| `GET /openapi/mqtt/userInfo/get/v2` | Get MQTT connection credentials |
+| Endpoint                                   | Purpose                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| `POST /openapi/oauth/getAccessToken`       | OAuth2 token exchange and refresh          |
+| `GET /openapi/smarthome/authList`          | Discover devices                           |
+| `POST /openapi/smarthome/getVehicleStatus` | Get device status                          |
+| `POST /openapi/smarthome/sendCommands`     | Send commands (Google Smart Home protocol) |
+| `GET /openapi/mqtt/userInfo/get/v2`        | Get MQTT connection credentials            |
 
 ## Changelog
 
@@ -83,7 +87,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 
 MIT License
 
-Copyright (c) 2023 TA2k <tombox2020@gmail.com>
+Copyright (c) 2026 TA2k <tombox2020@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
