@@ -1,58 +1,56 @@
 {
   "i18n": false,
   "items": {
-    "username": {
-      "type": "text",
-      "label": {
-        "en": "App Email",
-        "de": "App-E-Mail",
-        "ru": "Электронная почта приложения",
-        "pt": "Email do aplicativo",
-        "nl": "App-e-mail",
-        "fr": "Courriel de l'application",
-        "it": "E-mail dell'app",
-        "es": "Correo electrónico de la aplicación",
-        "pl": "E-mail aplikacji",
-        "zh-cn": "应用电子邮件"
+    "_oauth_header": {
+      "type": "header",
+      "text": {
+        "en": "Navimow Login",
+        "de": "Navimow Login"
+      },
+      "size": 3,
+      "newLine": true
+    },
+    "_oauth_info": {
+      "type": "staticText",
+      "text": {
+        "en": "1. Click the login link below and login with your Navimow account<br>2. After login the browser shows <b>Page not reachable</b> - this is expected<br>3. Copy the complete URL from the browser address bar<br><i>Example: http://localhost:1/callback?code=<b>XXXXX</b></i><br>4. Paste the URL below and save",
+        "de": "1. Klicke auf den Login-Link unten und melde dich mit deinem Navimow-Konto an<br>2. Nach dem Login zeigt der Browser <b>Seite nicht erreichbar</b> - das ist normal<br>3. Kopiere die komplette URL aus der Browser-Adressleiste<br><i>Beispiel: http://localhost:1/callback?code=<b>XXXXX</b></i><br>4. Füge die URL unten ein und speichere"
       },
       "newLine": true,
-      "sm": 3
+      "sm": 12
     },
-    "password": {
-      "type": "password",
-      "newLine": true,
-      "repeat": false,
-      "visible": true,
-      "sm": 3,
+    "_oauth_link": {
+      "type": "staticLink",
+      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback",
       "label": {
-        "en": "App Password",
-        "de": "App-Passwort",
-        "ru": "Пароль приложения",
-        "pt": "Senha de app",
-        "nl": "App-wachtwoord",
-        "fr": "Mot de passe de l'application",
-        "it": "Password dell'app",
-        "es": "Contraseña de la aplicación",
-        "pl": "Hasło do aplikacji",
-        "zh-cn": "应用密码"
+        "en": "Open Navimow Login",
+        "de": "Navimow Login öffnen"
+      },
+      "newLine": true,
+      "sm": 4,
+      "button": true
+    },
+    "authCode": {
+      "type": "text",
+      "newLine": true,
+      "sm": 6,
+      "label": {
+        "en": "Authorization Code",
+        "de": "Autorisierungscode"
+      },
+      "help": {
+        "en": "Paste the full URL or just the code value",
+        "de": "Die vollständige URL oder nur den Code-Wert einfügen"
       }
     },
     "interval": {
       "type": "number",
       "newLine": true,
-      "min": 1,
+      "min": 0.5,
       "sm": 2,
       "label": {
         "en": "Update interval (in minutes)",
-        "de": "Aktualisierungsintervall (in Minuten)",
-        "ru": "Интервал обновления (в минутах)",
-        "pt": "Intervalo de atualização (em minutos)",
-        "nl": "Update-interval (in minuten)",
-        "fr": "Intervalle de mise à jour (en minutes)",
-        "it": "Intervallo di aggiornamento (in minuti)",
-        "es": "Intervalo de actualización (en minutos)",
-        "pl": "Interwał aktualizacji (w minutach)",
-        "zh-cn": "更新间隔（分钟）"
+        "de": "Aktualisierungsintervall (in Minuten)"
       }
     }
   }

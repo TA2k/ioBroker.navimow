@@ -1,0 +1,50 @@
+{
+  "vehicleState": {
+    "isDocked": "Docked",
+    "isIdel": "Idle",
+    "isIdle": "Idle",
+    "isMapping": "Mapping",
+    "isRunning": "Mowing",
+    "isPaused": "Paused",
+    "isDocking": "Returning to Dock",
+    "Error": "Error",
+    "error": "Error",
+    "isLifted": "Lifted (Error)",
+    "inSoftwareUpdate": "Software Update",
+    "Self-Checking": "Self-Checking",
+    "Self-checking": "Self-Checking",
+    "Offline": "Offline",
+    "offline": "Offline"
+  },
+  "status": {
+    "idle": "Idle",
+    "mowing": "Mowing",
+    "paused": "Paused",
+    "docked": "Docked",
+    "charging": "Charging",
+    "error": "Error",
+    "returning": "Returning to Dock",
+    "unknown": "Unknown"
+  },
+  "state": {
+    "idle": "Idle",
+    "mowing": "Mowing",
+    "paused": "Paused",
+    "docked": "Docked",
+    "charging": "Charging",
+    "error": "Error",
+    "returning": "Returning to Dock",
+    "unknown": "Unknown"
+  },
+  "error_code": {
+    "none": "No Error",
+    "stuck": "Stuck",
+    "lifted": "Lifted",
+    "rain": "Rain",
+    "battery_low": "Battery Low",
+    "sensor_error": "Sensor Error",
+    "motor_error": "Motor Error",
+    "blade_error": "Blade Error",
+    "unknown": "Unknown Error"
+  }
+}

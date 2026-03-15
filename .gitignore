@@ -12,6 +12,9 @@ iobroker.*.tgz
 
 Thumbs.db
 
+# Reference documentation repos
+doku/
+
 # i18n intermediate files
 admin/i18n/flat.txt
 admin/i18n/*/flat.txt

@@ -78,11 +78,10 @@
       }
     ]
   },
-  "encryptedNative": ["password"],
-  "protectedNative": ["password"],
+  "encryptedNative": [],
+  "protectedNative": [],
   "native": {
-    "username": "",
-    "password": "",
+    "authCode": "",
     "interval": 10
   },
   "objects": [],

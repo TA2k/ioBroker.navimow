@@ -11,132 +11,67 @@
 
 **Tests:** ![Test and Release](https://github.com/TA2k/ioBroker.navimow/workflows/Test%20and%20Release/badge.svg)
 
-## navimow adapter for ioBroker
+## Navimow Adapter for ioBroker
 
-Adapter for NaviMower from Segway
+ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) REST API and MQTT for real-time updates.
 
-Only login is working.
+## Features
 
-Status and controlling is secured by custom encryption library by navimow. At the moment there is no way known to simulate the encryption and decryption.
+- OAuth2 login via Navimow account
+- Real-time status updates via MQTT (WebSocket Secure)
+- HTTP polling as fallback
+- Remote control: Start, Stop, Pause, Resume, Dock
+- Automatic token refresh with MQTT reconnect
 
-The Navimow has a complex debug detection the app version 1.4.9 is easier to debug then 2.0.0
+## Setup
 
-Example Post request:
+1. Open the adapter settings in ioBroker Admin
+2. Click **"Navimow Login öffnen"** to open the Navimow login page
+3. Login with your Navimow account
+4. After login the browser shows **"Seite nicht erreichbar"** - this is expected
+5. Copy the complete URL from the browser address bar (contains `?code=XXXXX`)
+6. Paste the URL into the **Authorization Code** field and save
+7. The adapter exchanges the code for a token and starts automatically
 
-```
-POST https://navimow-fra.ninebot.com/vehicle/vehicle/index
+The token is refreshed automatically. A re-login is only needed if the refresh token expires.
 
-Payload:
-h = MD5 Hash of the payload
-k = clientKey
-d = postdata =Example AES 128 key: 66 b9 24 37 f7 d5 f4 c4 c1 32 c7 74 fa e9 18 86
-AES Key is changing every request
-```
+## States
 
-Response:
+For each mower device the following channels are created:
 
-```
-  {"keyDataTwo":"5K0E8400-E29","data":"eyJjdXJyZW50X3ZlcnNpb24iO","platform":1,"keyDataOne":"segway.mower","timeStamp":1696799374783,"keyDataThree":"321A2EF1F010","keyDataFour":"52428.278076"}
-     data:
-     {"current_version":104090001,"checkcode":"1a478b9dcf053990c1900294a834cbff","platform":"iOS","vehicle_type":"20000001","vehicle_sn":"XXXXXX","language":"de","device_id":"XXX-xx-xxx-xxxx-XXXXXXX","serviceTime":1696799373292.8428,"ostype":"ios","platform_ver":"14.8","client_ver":104090001,"access_token":"x.x.w3-x-x","uid":"268XXX"}
-```
+| Channel | Description |
+| --- | --- |
+| `{deviceId}.general` | Device info (name, model, serial number, firmware) |
+| `{deviceId}.status` | Current status (vehicleState, battery, position, signal) |
+| `{deviceId}.status.json` | Raw JSON of the last status update |
+| `{deviceId}.events` | MQTT events |
+| `{deviceId}.attributes` | MQTT device attributes |
+| `{deviceId}.remote` | Remote control buttons |
 
-The app is secured by mutiple frameworks:
+### Remote Controls
 
-```
-libRSSupport.so
-libbugsnag-root-detection.so
-libnbcrypto.so
-libnetseckit-4.3.1.so
-libbugsnag-ndk.so
-libc++_shared.so
-libnesec-x86.so
-libpl_droidsonroids_gif.so
-libbugsnag-plugin-android-anr.so
-libmarsxlog.so
-libnesec.so
-librsjni.so
-```
+| State | Description |
+| --- | --- |
+| `remote.Refresh` | Trigger a manual status refresh |
+| `remote.start` | Start mowing |
+| `remote.stop` | Stop mowing |
+| `remote.pause` | Pause mowing |
+| `remote.resume` | Resume mowing |
+| `remote.dock` | Return to dock |
 
-BugSnag
+Remote states reflect the current device state with `ack:true`. For example, when the mower is mowing, `remote.start` is `true`.
 
-SecNeo:
+## API
 
-https://bbs.kanxue.com/thread-273614.htm
+Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA).
 
-https://d0nuts33.github.io/2022/11/24/vmp%E5%8A%A0%E5%9B%BA%E5%88%9D%E6%8E%A2%EF%BC%88%E4%B8%8B%EF%BC%89/index.html
-
-https://zhuanlan.zhihu.com/p/551331698
-
-https://www.leiphone.com/category/gbsecurity/TABfBNU8x0lZIPoT.html
-
-https://blog.csdn.net/weixin_39738152/article/details/111000036
-
-Custom crypto:
-
-libnbcrypto.so
-
-Function extracted with Ghidra:
-
-```
-AES*ECB_decrypt
-AES_ECB_encrypt
-AES_init_ctx
-AsciiToHex
-array2String
-BKDRHash
-crypto*
-crypto*get_version
-crypto_start_once_sn
-entry
-FUN_001
-initParams
-Java_cn_ninebot_nbcrypto_NbEncryption*
-Java*cn_ninebot_nbcrypto_NbEncryption_crypto_1decrypt
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1encrypt
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1init
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1reset_1sn
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1setAuthParam
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1setKey
-Java_cn_ninebot_nbcrypto_NbEncryption_crypto_1start_1sn
-Java_cn_ninebot_nbcrypto_NbEncryption_getDate
-Java_cn_ninebot_nbcrypto_NbEncryption_getVersion
-Java_cn_ninebot_nbcrypto_NbEncryption_hash
-Java_cn_ninebot_nbcrypto_NbEncryption_setData
-Key_rule_analysis
-mbedtls*
-mbedtls*internal_sha1_process
-mbedtls_sha1
-mbedtls_sha1_clone
-mbedtls_sha1_finish
-mbedtls_sha1_finish_ret
-mbedtls_sha1_free
-mbedtls_sha1_init
-mbedtls_sha1_process
-mbedtls_sha1_ret
-mbedtls_sha1_starts
-mbedtls_sha1_starts_ret
-mbedtls_sha1_update
-mbedtls_sha1_update_ret
-nb*
-nb_crypto_init
-nb_decrypt
-nb_encrypt
-operator.
-r
-rc4_crypt
-rc4_setup
-resetParams
-set
-setAuthParam
-setKeys
-```
-
-The idea is to use the .so file as it is or reverse engineering the methods
-
-This is an example to use a .so file in a docker
-
-https://github.com/Hacksore/hyundai-kia-stamp/tree/arm
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /openapi/oauth/getAccessToken` | OAuth2 token exchange and refresh |
+| `GET /openapi/smarthome/authList` | Discover devices |
+| `POST /openapi/smarthome/getVehicleStatus` | Get device status |
+| `POST /openapi/smarthome/sendCommands` | Send commands (Google Smart Home protocol) |
+| `GET /openapi/mqtt/userInfo/get/v2` | Get MQTT connection credentials |
 
 ## Changelog
 
