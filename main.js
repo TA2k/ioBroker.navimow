@@ -385,7 +385,6 @@ class Navimow extends utils.Adapter {
       method: 'post',
       url: OAUTH2_TOKEN_URL,
       data: params,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
@@ -416,7 +415,6 @@ class Navimow extends utils.Adapter {
       method: 'post',
       url: OAUTH2_TOKEN_URL,
       data: params,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
