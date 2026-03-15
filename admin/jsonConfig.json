@@ -18,7 +18,7 @@
         "de": "1. Klicke auf den Login-Link unten und melde dich mit deinem Navimow-Konto an<br>2. Nach dem Login wirst du weitergeleitet - kopiere die komplette URL aus der Browser-Adressleiste<br><i>Die URL enthält <b>?code=XXXXX</b></i><br>3. Füge die URL unten ein und speichere"
       },
       "newLine": true,
-      "sm": 12
+      "xs": 12, "sm": 12, "md": 12, "lg": 12, "xl": 12
     },
     "_oauth_link": {
       "type": "staticLink",
@@ -28,13 +28,13 @@
         "de": "Navimow Login öffnen"
       },
       "newLine": true,
-      "sm": 4,
+      "xs": 12, "sm": 4, "md": 4, "lg": 4, "xl": 4,
       "button": true
     },
     "authCode": {
       "type": "text",
       "newLine": true,
-      "sm": 6,
+      "xs": 12, "sm": 6, "md": 6, "lg": 6, "xl": 6,
       "label": {
         "en": "Authorization Code",
         "de": "Autorisierungscode"
@@ -48,10 +48,14 @@
       "type": "number",
       "newLine": true,
       "min": 0.5,
-      "sm": 2,
+      "xs": 12, "sm": 2, "md": 2, "lg": 2, "xl": 2,
       "label": {
         "en": "Update interval (in minutes)",
         "de": "Aktualisierungsintervall (in Minuten)"
+      },
+      "help": {
+        "en": "HTTP polling fallback interval. Only used when MQTT is disconnected or stale (no message for 5 min).",
+        "de": "HTTP-Polling-Fallback-Intervall. Wird nur verwendet, wenn MQTT getrennt oder veraltet ist (keine Nachricht seit 5 Min.)."
       }
     }
   }
