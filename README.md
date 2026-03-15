@@ -78,8 +78,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 | `GET /openapi/mqtt/userInfo/get/v2`        | Get MQTT connection credentials            |
 
 ## Changelog
-
-### 0.0.1
+### 1.0.0 (2026-03-15)
 
 - (TA2k) initial release
 

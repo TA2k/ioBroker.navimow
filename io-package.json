@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "navimow",
-    "version": "0.0.1",
+    "version": "1.0.0",
     "news": {
+      "1.0.0": {
+        "en": "initial release",
+        "de": "erstausstrahlung",
+        "ru": "первоначальное освобождение",
+        "pt": "libertação inicial",
+        "nl": "eerste release",
+        "fr": "libération initiale",
+        "it": "rilascio iniziale",
+        "es": "liberación inicial",
+        "pl": "początkowe zwolnienie",
+        "uk": "початковий реліз",
+        "zh-cn": "初步释放"
+      },
       "0.0.1": {
         "en": "initial release",
         "de": "Erstveröffentlichung",
@@ -43,8 +56,13 @@
       "uk": "Адаптер для NaviMower від Segway",
       "zh-cn": "Segway 的 NaviMower 适配器"
     },
-    "authors": ["TA2k <tombox2020@gmail.com>"],
-    "keywords": ["navimower", "segway"],
+    "authors": [
+      "TA2k <tombox2020@gmail.com>"
+    ],
+    "keywords": [
+      "navimower",
+      "segway"
+    ],
     "licenseInformation": {
       "license": "MIT",
       "type": "free"
