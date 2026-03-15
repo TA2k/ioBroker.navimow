@@ -186,6 +186,8 @@ class Navimow extends utils.Adapter {
         const mqttUsername = mqttInfo.userName;
         const mqttPassword = mqttInfo.pwdInfo;
 
+        this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
+
         let brokerUrl;
         const mqttOpts = {
           username: mqttUsername,
