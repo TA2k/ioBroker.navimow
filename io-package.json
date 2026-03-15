@@ -17,7 +17,6 @@
         "zh-cn": "首次出版"
       }
     },
-    "title": "NaviMow",
     "titleLang": {
       "en": "NaviMow",
       "de": "NaviMow",
@@ -46,9 +45,12 @@
     },
     "authors": ["TA2k <tombox2020@gmail.com>"],
     "keywords": ["navimower", "segway"],
-    "license": "MIT",
+    "licenseInformation": {
+      "license": "MIT",
+      "type": "free"
+    },
+    "tier": 3,
     "platform": "Javascript/Node.js",
-    "main": "main.js",
     "icon": "navimow.png",
     "enabled": true,
     "extIcon": "https://raw.githubusercontent.com/TA2k/ioBroker.navimow/main/admin/navimow.png",
@@ -69,7 +71,7 @@
     },
     "dependencies": [
       {
-        "js-controller": ">=3.3.22"
+        "js-controller": ">=5.0.19"
       }
     ],
     "globalDependencies": [
