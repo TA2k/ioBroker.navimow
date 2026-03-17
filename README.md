@@ -52,6 +52,34 @@ For each mower device the following channels are created:
 | `{deviceId}.attributes`  | MQTT device attributes                                   |
 | `{deviceId}.remote`      | Remote control buttons                                   |
 
+### vehicleState
+
+The `status.vehicleState` state contains the current mower state.
+
+**To check if the mower is currently mowing, check for `isRunning`:**
+
+```javascript
+on({ id: 'navimow.0.DEVICE_ID.status.vehicleState', change: 'any' }, (obj) => {
+  if (obj.state.val === 'isRunning') {
+    log('Mower is mowing!');
+  }
+});
+```
+
+| Value               | Description         |
+| ------------------- | ------------------- |
+| `isRunning`         | Mowing              |
+| `isDocked`          | Docked              |
+| `isIdle`            | Idle                |
+| `isPaused`          | Paused              |
+| `isDocking`         | Returning to Dock   |
+| `isMapping`         | Mapping             |
+| `isLifted`          | Lifted (Error)      |
+| `Error`             | Error               |
+| `inSoftwareUpdate`  | Software Update     |
+| `Self-Checking`     | Self-Checking       |
+| `Offline`           | Offline             |
+
 ### Remote Controls
 
 | State            | Description                     |
