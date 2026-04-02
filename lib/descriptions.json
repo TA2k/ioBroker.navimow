@@ -34,5 +34,9 @@
   "total_mowing_time": "Total Mowing Time (s)",
   "timestamp": "Last Update Timestamp",
   "descriptiveCapacityRemaining": "Battery Description",
-  "extra": "Extra Information"
+  "extra": "Extra Information",
+  "postureTheta": "Rotation Angle (rad)",
+  "postureX": "Position X (m)",
+  "postureY": "Position Y (m)",
+  "type": "Type"
 }

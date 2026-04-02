@@ -244,6 +244,7 @@ class Navimow extends utils.Adapter {
               '/downlink/vehicle/' + deviceId + '/realtimeDate/state',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/event',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/attributes',
+              '/downlink/vehicle/' + deviceId + '/realtimeDate/location',
             ];
             for (const topic of topics) {
               this.mqttClient && this.mqttClient.subscribe(topic, (err) => {
@@ -301,7 +302,6 @@ class Navimow extends utils.Adapter {
       }
 
       const data = JSON.parse(payload.toString());
-      data.device_id = data.device_id || deviceId;
 
       this.log.debug('MQTT ' + channel + ' for ' + deviceId + ': ' + JSON.stringify(data));
 
@@ -327,6 +327,18 @@ class Navimow extends utils.Adapter {
           descriptions,
           states,
         });
+      } else if (channel === 'location') {
+        // Payload is an array, use last entry
+        const entries = Array.isArray(data) ? data : [data];
+        const last = entries[entries.length - 1];
+        if (last) {
+          this.json2iob.parse(deviceId + '.location', last, {
+            forceIndex: true,
+            channelName: 'Location',
+            descriptions,
+            states,
+          });
+        }
       }
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
