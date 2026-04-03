@@ -51,6 +51,7 @@ For each mower device the following channels are created:
 | `{deviceId}.events`      | MQTT events                                              |
 | `{deviceId}.attributes`  | MQTT device attributes                                   |
 | `{deviceId}.remote`      | Remote control buttons                                   |
+| `{deviceId}.location`    | Real-time mower position (via MQTT)                      |
 
 ### vehicleState
 
@@ -93,6 +94,20 @@ on({ id: 'navimow.0.DEVICE_ID.status.vehicleState', change: 'any' }, (obj) => {
 
 Remote states reflect the current device state with `ack:true`. For example, when the mower is mowing, `remote.start` is `true`.
 
+### Location
+
+The `location` channel receives real-time position data via MQTT while the mower is active. Coordinates are relative to the mowing area (in meters), not GPS.
+
+| State                  | Description            |
+| ---------------------- | ---------------------- |
+| `location.postureX`    | Position X (m)         |
+| `location.postureY`    | Position Y (m)         |
+| `location.postureTheta`| Rotation angle (rad)   |
+| `location.vehicleState`| Vehicle state code     |
+| `location.time`        | Timestamp              |
+
+The position data can be visualized as a mowing map using Grafana (e.g. with the Plotly or Geomap panel) or ioBroker.vis.
+
 ## API
 
 Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA).
@@ -106,6 +121,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 | `GET /openapi/mqtt/userInfo/get/v2`        | Get MQTT connection credentials            |
 
 ## Changelog
+
 ### 1.0.1 (2026-03-15)
 
 - (TA2k) initial release
