@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "navimow",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "news": {
+      "1.0.2": {
+        "en": "Add MQTT location topic with real-time position tracking\nGeneric MQTT topic handling via wildcard subscription",
+        "de": "MQTT Standortthema mit Echtzeit-Positionsverfolgung hinzufügen\nGenerisches MQTT-Themenhandling über Wildcard-Abonnement",
+        "ru": "Добавить тему местоположения MQTT с отслеживанием местоположения в реальном времени\nОбработка темы MQTT через подписку wildcard",
+        "pt": "Adicionar tópico de localização MQTT com rastreamento de posição em tempo real\nTratamento genérico de tópicos MQTT através de assinatura wildcard",
+        "nl": "MQTT-locatieonderwerp toevoegen met real-time position tracking\nGenerieke MQTT onderwerp behandeling via wildcard abonnement",
+        "fr": "Ajouter un sujet de localisation MQTT avec suivi de position en temps réel\nGestion de sujet MQTT générique via abonnement wildcard",
+        "it": "Aggiungi argomento posizione MQTT con monitoraggio in tempo reale della posizione\nGenerico MQTT argomento gestione tramite abbonamento wildcard",
+        "es": "Añadir MQTT tema de ubicación con seguimiento de posición en tiempo real\nGenérico MQTT manejo de temas a través de suscripción de tarjetas silvestres",
+        "pl": "Dodaj temat lokalizacji MQTT z śledzeniem pozycji w czasie rzeczywistym\nObsługa tematu Generic MQTT poprzez subskrypcję dzikiej karty",
+        "uk": "Додати тему розташування MQTT з відстеженням позиції в режимі реального часу\nГенетичні MQTT теми обробки через підписку на дику картку",
+        "zh-cn": "添加带有实时位置跟踪的 MQTT 位置主题\n通过通配符订阅处理通用 MQTT 话题"
+      },
       "1.0.1": {
         "en": "initial release",
         "de": "erstausstrahlung",

@@ -245,6 +245,7 @@ class Navimow extends utils.Adapter {
               '/downlink/vehicle/' + deviceId + '/realtimeDate/event',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/attributes',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/location',
+              '/downlink/vehicle/' + deviceId + '/#',
             ];
             for (const topic of topics) {
               this.mqttClient && this.mqttClient.subscribe(topic, (err) => {
@@ -288,58 +289,41 @@ class Navimow extends utils.Adapter {
   handleMqttMessage(topic, payload) {
     try {
       const parts = topic.split('/').filter((p) => p !== '');
-      // Expected: downlink/vehicle/{device_id}/realtimeDate/{channel}
-      if (parts.length !== 5 || parts[0] !== 'downlink' || parts[1] !== 'vehicle') {
+      // Expected: downlink/vehicle/{device_id}/.../{channel}
+      if (parts.length < 4 || parts[0] !== 'downlink' || parts[1] !== 'vehicle') {
         this.log.debug('MQTT unknown topic: ' + topic);
         return;
       }
       const deviceId = parts[2];
-      const channel = parts[4]; // state, event, attributes
+      const channel = parts[parts.length - 1];
 
       if (!this.deviceArray.includes(deviceId)) {
         this.log.debug('MQTT message for unknown device: ' + deviceId);
         return;
       }
 
-      const data = JSON.parse(payload.toString());
+      let data = JSON.parse(payload.toString());
 
       this.log.debug('MQTT ' + channel + ' for ' + deviceId + ': ' + JSON.stringify(data));
 
+      // state channel: also store raw JSON
       if (channel === 'state') {
         this.setState(deviceId + '.status.json', JSON.stringify(data), true);
-        this.json2iob.parse(deviceId + '.status', data, {
-          forceIndex: true,
-          channelName: 'Status',
-          descriptions,
-          states,
-        });
-      } else if (channel === 'event') {
-        this.json2iob.parse(deviceId + '.events', data, {
-          forceIndex: true,
-          channelName: 'Events',
-          descriptions,
-          states,
-        });
-      } else if (channel === 'attributes') {
-        this.json2iob.parse(deviceId + '.attributes', data, {
-          forceIndex: true,
-          channelName: 'Attributes',
-          descriptions,
-          states,
-        });
-      } else if (channel === 'location') {
-        // Payload is an array, use last entry
-        const entries = Array.isArray(data) ? data : [data];
-        const last = entries[entries.length - 1];
-        if (last) {
-          this.json2iob.parse(deviceId + '.location', last, {
-            forceIndex: true,
-            channelName: 'Location',
-            descriptions,
-            states,
-          });
-        }
       }
+
+      // Arrays: use last entry (e.g. location)
+      if (Array.isArray(data)) {
+        data = data[data.length - 1];
+        if (!data) return;
+      }
+
+      const folderName = channel === 'state' ? 'status' : channel;
+      this.json2iob.parse(deviceId + '.' + folderName, data, {
+        forceIndex: true,
+        channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
+        descriptions,
+        states,
+      });
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
     }

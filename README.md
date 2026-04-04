@@ -121,6 +121,10 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 | `GET /openapi/mqtt/userInfo/get/v2`        | Get MQTT connection credentials            |
 
 ## Changelog
+### 1.0.2 (2026-04-04)
+
+- (TA2k) Add MQTT location topic with real-time position tracking
+- (TA2k) Generic MQTT topic handling via wildcard subscription
 
 ### 1.0.1 (2026-03-15)
 
