@@ -197,12 +197,16 @@ class Navimow extends utils.Adapter {
 
         let brokerUrl;
         const mqttOpts = {
-          username: mqttUsername,
-          password: mqttPassword,
-          clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().substring(0, 10),
+          clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
           keepalive: 60,
           reconnectPeriod: 10000,
         };
+
+        // Only set MQTT username/password if both are present (matches HA behavior)
+        if (mqttUsername && mqttPassword) {
+          mqttOpts.username = mqttUsername;
+          mqttOpts.password = mqttPassword;
+        }
 
         if (mqttUrlRaw) {
           // WebSocket mode
