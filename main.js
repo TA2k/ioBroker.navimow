@@ -195,6 +195,8 @@ class Navimow extends utils.Adapter {
 
         this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
 
+        this.mqttErrorCount = 0;
+
         let brokerUrl;
         const mqttOpts = {
           clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
@@ -240,8 +242,17 @@ class Navimow extends utils.Adapter {
         this.mqttClient = mqtt.connect(brokerUrl, mqttOpts);
 
         this.mqttClient.on('connect', () => {
-          this.log.info('MQTT connected');
+          if (this.mqttErrorCount > 0) {
+            this.log.info('MQTT reconnected successfully after ' + this.mqttErrorCount + ' error(s)');
+          } else {
+            this.log.info('MQTT connected');
+          }
           this.mqttConnected = true;
+          this.mqttErrorCount = 0;
+          // Reset reconnect interval on successful connect
+          if (this.mqttClient) {
+            this.mqttClient.options.reconnectPeriod = 10000;
+          }
           // Subscribe to device topics
           for (const deviceId of this.deviceArray) {
             const topics = [
@@ -269,7 +280,16 @@ class Navimow extends utils.Adapter {
         });
 
         this.mqttClient.on('error', (err) => {
-          this.log.error('MQTT error: ' + err.message);
+          this.mqttErrorCount++;
+          if (this.mqttErrorCount === 1) {
+            this.log.error('MQTT error: ' + err.message);
+          } else {
+            this.log.debug('MQTT error: ' + err.message);
+          }
+          if (this.mqttErrorCount === 3 && this.mqttClient) {
+            this.log.info('MQTT repeated errors, increasing reconnect interval to 10 min. HTTP polling is active as fallback.');
+            this.mqttClient.options.reconnectPeriod = 600000;
+          }
           if ('code' in err) {
             this.log.debug('MQTT error code: ' + /** @type {any} */ (err).code);
           }
@@ -281,7 +301,11 @@ class Navimow extends utils.Adapter {
         });
 
         this.mqttClient.on('reconnect', () => {
-          this.log.debug('MQTT reconnecting...');
+          if (this.mqttErrorCount >= 3) {
+            this.log.info('MQTT reconnecting...');
+          } else {
+            this.log.debug('MQTT reconnecting...');
+          }
         });
       })
       .catch((error) => {
