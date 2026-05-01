@@ -46,6 +46,8 @@ class Navimow extends utils.Adapter {
     this.refreshTimeout = undefined;
     this.mqttClient = null;
     this.mqttConnected = false;
+    this.mqttRefreshing = false;
+    this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
   }
 
@@ -195,12 +197,10 @@ class Navimow extends utils.Adapter {
 
         this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
 
-        this.mqttErrorCount = 0;
-
         let brokerUrl;
         const mqttOpts = {
           clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
-          keepalive: 60,
+          keepalive: 2400,
           reconnectPeriod: 10000,
         };
 
@@ -296,8 +296,14 @@ class Navimow extends utils.Adapter {
         });
 
         this.mqttClient.on('close', () => {
-          this.log.info('MQTT connection closed');
+          if (this.mqttConnected) {
+            this.log.info('MQTT connection closed');
+          }
           this.mqttConnected = false;
+          // Refresh MQTT credentials on disconnect (userName/pwdInfo are bound to OAuth token)
+          if (!this.mqttRefreshing) {
+            this.refreshMqttCredentials();
+          }
         });
 
         this.mqttClient.on('reconnect', () => {
@@ -389,6 +395,47 @@ class Navimow extends utils.Adapter {
       this.mqttClient = null;
       this.mqttConnected = false;
       this.log.info('MQTT disconnected');
+    }
+  }
+
+  async refreshMqttCredentials() {
+    if (this.mqttRefreshing) return;
+    this.mqttRefreshing = true;
+    try {
+      // Refresh OAuth token first (MQTT credentials are bound to it)
+      if (this.session.refresh_token) {
+        const tokenData = await this.refreshToken(this.session.refresh_token);
+        if (tokenData) {
+          await this.storeToken(tokenData);
+          this.log.debug('Token refreshed before MQTT credential update');
+        }
+      }
+      // Fetch fresh MQTT credentials
+      const res = await this.requestClient({
+        method: 'get',
+        url: '/openapi/mqtt/userInfo/get/v2',
+        headers: this.getAuthHeaders(),
+      });
+      if (res.data && res.data.code === 1 && res.data.data) {
+        const mqttInfo = res.data.data;
+        const newUsername = mqttInfo.userName;
+        const newPassword = mqttInfo.pwdInfo;
+        // Update wsOptions with fresh Bearer token
+        if (this.mqttClient && this.mqttClient.options) {
+          if (newUsername && newPassword) {
+            this.mqttClient.options.username = newUsername;
+            this.mqttClient.options.password = newPassword;
+          }
+          if (this.mqttClient.options.wsOptions && this.mqttClient.options.wsOptions.headers) {
+            this.mqttClient.options.wsOptions.headers.Authorization = 'Bearer ' + this.session.access_token;
+          }
+          this.log.debug('MQTT credentials updated for next reconnect');
+        }
+      }
+    } catch (e) {
+      this.log.debug('MQTT credential refresh failed: ' + e.message);
+    } finally {
+      this.mqttRefreshing = false;
     }
   }
 
