@@ -6,6 +6,7 @@ const Json2iob = require('json2iob');
 const crypto = require('crypto');
 const mqtt = require('mqtt');
 const { URL } = require('url');
+const { createCanvas } = require('canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
 
@@ -49,6 +50,7 @@ class Navimow extends utils.Adapter {
     this.mqttRefreshing = false;
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
+    this.locationHistory = {};
   }
 
   async onReady() {
@@ -345,6 +347,20 @@ class Navimow extends utils.Adapter {
         this.setState(deviceId + '.status.json', JSON.stringify(data), true);
       }
 
+      // location channel: collect points and render map
+      if (channel === 'location') {
+        const points = Array.isArray(data) ? data : [data];
+        if (!this.locationHistory[deviceId]) {
+          this.locationHistory[deviceId] = [];
+        }
+        for (const p of points) {
+          if (p && p.postureX != null && p.postureY != null) {
+            this.locationHistory[deviceId].push({ x: p.postureX, y: p.postureY });
+          }
+        }
+        this.renderMap(deviceId);
+      }
+
       // Arrays: use last entry (e.g. location)
       if (Array.isArray(data)) {
         data = data[data.length - 1];
@@ -387,6 +403,61 @@ class Navimow extends utils.Adapter {
     for (const cmd of Object.keys(COMMAND_MAP)) {
       this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
     }
+  }
+
+  renderMap(deviceId) {
+    const points = this.locationHistory[deviceId];
+    if (!points || points.length < 2) return;
+
+    const size = 800;
+    const padding = 40;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const scale = (size - 2 * padding) / Math.max(rangeX, rangeY);
+
+    const canvas = createCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, size, size);
+
+    // Draw path
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < points.length; i++) {
+      const px = padding + (points[i].x - minX) * scale;
+      const py = padding + (points[i].y - minY) * scale;
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.stroke();
+
+    // Current position marker
+    const last = points[points.length - 1];
+    const lx = padding + (last.x - minX) * scale;
+    const ly = padding + (last.y - minY) * scale;
+    ctx.fillStyle = '#ff4444';
+    ctx.beginPath();
+    ctx.arc(lx, ly, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    const base64 = canvas.toBuffer('image/png').toString('base64');
+    this.setState(deviceId + '.map', base64, true);
   }
 
   disconnectMqtt() {
@@ -588,6 +659,11 @@ class Navimow extends utils.Adapter {
             common: { name: 'Raw JSON', write: false, read: true, type: 'string', role: 'json' },
             native: {},
           });
+          await this.setObjectNotExistsAsync(id + '.map', {
+            type: 'state',
+            common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
+            native: {},
+          });
 
           const remoteArray = [
             { command: 'Refresh', name: 'Refresh status' },
@@ -753,6 +829,9 @@ class Navimow extends utils.Adapter {
       if (channel === 'status' && (command === 'vehicleState' || command === 'state' || command === 'status')) {
         this.log.debug('Device state changed to "' + state.val + '", updating remote states');
         this.updateRemoteStates(deviceId, String(state.val));
+        if (state.val === 'isRunning') {
+          this.locationHistory[deviceId] = [];
+        }
       }
       return;
     }
