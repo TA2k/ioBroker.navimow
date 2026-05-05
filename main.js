@@ -410,7 +410,7 @@ class Navimow extends utils.Adapter {
     if (!points || points.length < 2) return;
 
     const size = 800;
-    const padding = 40;
+    const padding = 50;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const p of points) {
@@ -422,7 +422,12 @@ class Navimow extends utils.Adapter {
 
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;
-    const scale = (size - 2 * padding) / Math.max(rangeX, rangeY);
+    const drawArea = size - 2 * padding;
+    const scaleX = drawArea / rangeX;
+    const scaleY = drawArea / rangeY;
+    const scale = Math.min(scaleX, scaleY);
+    const offsetX = padding + (drawArea - rangeX * scale) / 2;
+    const offsetY = padding + (drawArea - rangeY * scale) / 2;
 
     const canvas = createCanvas(size, size);
     const ctx = canvas.getContext('2d');
@@ -431,29 +436,53 @@ class Navimow extends utils.Adapter {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, size, size);
 
-    // Draw path
-    ctx.strokeStyle = '#00ff88';
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (let i = 0; i < points.length; i++) {
-      const px = padding + (points[i].x - minX) * scale;
-      const py = padding + (points[i].y - minY) * scale;
-      if (i === 0) {
-        ctx.moveTo(px, py);
-      } else {
-        ctx.lineTo(px, py);
-      }
+    // Grid
+    ctx.strokeStyle = '#2a2a4e';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 10; i++) {
+      const pos = padding + (drawArea / 10) * i;
+      ctx.beginPath();
+      ctx.moveTo(pos, padding);
+      ctx.lineTo(pos, size - padding);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(padding, pos);
+      ctx.lineTo(size - padding, pos);
+      ctx.stroke();
     }
-    ctx.stroke();
 
-    // Current position marker
+    // Draw path with gradient from start (blue) to current (green)
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let i = 1; i < points.length; i++) {
+      const t = i / (points.length - 1);
+      const r = Math.round(0 * (1 - t) + 0 * t);
+      const g = Math.round(120 * (1 - t) + 255 * t);
+      const b = Math.round(255 * (1 - t) + 100 * t);
+      ctx.strokeStyle = `rgb(${r},${g},${b})`;
+      ctx.beginPath();
+      ctx.moveTo(offsetX + (points[i - 1].x - minX) * scale, offsetY + (maxY - points[i - 1].y) * scale);
+      ctx.lineTo(offsetX + (points[i].x - minX) * scale, offsetY + (maxY - points[i].y) * scale);
+      ctx.stroke();
+    }
+
+    // Start marker (blue)
+    const first = points[0];
+    const fx = offsetX + (first.x - minX) * scale;
+    const fy = offsetY + (maxY - first.y) * scale;
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.arc(fx, fy, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Current position marker (red)
     const last = points[points.length - 1];
-    const lx = padding + (last.x - minX) * scale;
-    const ly = padding + (last.y - minY) * scale;
+    const lx = offsetX + (last.x - minX) * scale;
+    const ly = offsetY + (maxY - last.y) * scale;
     ctx.fillStyle = '#ff4444';
     ctx.beginPath();
-    ctx.arc(lx, ly, 6, 0, Math.PI * 2);
+    ctx.arc(lx, ly, 5, 0, Math.PI * 2);
     ctx.fill();
 
     const base64 = canvas.toBuffer('image/png').toString('base64');
