@@ -472,7 +472,7 @@ class Navimow extends utils.Adapter {
     }
 
     // Draw path with gradient from start (blue) to current (green)
-    // 180° rotation to match Navimow app orientation
+    // Y-flip only: real-world Y grows up, canvas Y grows down
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -482,8 +482,8 @@ class Navimow extends utils.Adapter {
       const b = Math.round(255 - 155 * t);
       ctx.strokeStyle = `rgb(0,${g},${b})`;
       ctx.beginPath();
-      ctx.moveTo(padding + (maxX - points[i - 1].x) * scaleX, padding + (maxY - points[i - 1].y) * scaleY);
-      ctx.lineTo(padding + (maxX - points[i].x) * scaleX, padding + (maxY - points[i].y) * scaleY);
+      ctx.moveTo(padding + (points[i - 1].x - minX) * scaleX, padding + (maxY - points[i - 1].y) * scaleY);
+      ctx.lineTo(padding + (points[i].x - minX) * scaleX, padding + (maxY - points[i].y) * scaleY);
       ctx.stroke();
     }
 
@@ -491,14 +491,14 @@ class Navimow extends utils.Adapter {
     const first = points[0];
     ctx.fillStyle = '#4488ff';
     ctx.beginPath();
-    ctx.arc(padding + (maxX - first.x) * scaleX, padding + (maxY - first.y) * scaleY, 5, 0, Math.PI * 2);
+    ctx.arc(padding + (first.x - minX) * scaleX, padding + (maxY - first.y) * scaleY, 5, 0, Math.PI * 2);
     ctx.fill();
 
     // Current position marker (red)
     const last = points[points.length - 1];
     ctx.fillStyle = '#ff4444';
     ctx.beginPath();
-    ctx.arc(padding + (maxX - last.x) * scaleX, padding + (maxY - last.y) * scaleY, 5, 0, Math.PI * 2);
+    ctx.arc(padding + (last.x - minX) * scaleX, padding + (maxY - last.y) * scaleY, 5, 0, Math.PI * 2);
     ctx.fill();
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
