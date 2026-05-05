@@ -429,7 +429,7 @@ class Navimow extends utils.Adapter {
     const points = this.locationHistory[deviceId];
     if (!points || points.length < 2) return;
 
-    const maxSize = 800;
+    const size = 800;
     const padding = 50;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -442,43 +442,29 @@ class Navimow extends utils.Adapter {
 
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;
-    const aspect = rangeX / rangeY;
-    // Canvas size adapts to path aspect ratio (min 400px per axis)
-    let width, height;
-    if (aspect > 1) {
-      width = maxSize;
-      height = Math.max(400, Math.round(maxSize / aspect));
-    } else {
-      height = maxSize;
-      width = Math.max(400, Math.round(maxSize * aspect));
-    }
+    const drawArea = size - 2 * padding;
+    const scaleX = drawArea / rangeX;
+    const scaleY = drawArea / rangeY;
 
-    const drawW = width - 2 * padding;
-    const drawH = height - 2 * padding;
-    const scale = Math.min(drawW / rangeX, drawH / rangeY);
-    const offsetX = padding + (drawW - rangeX * scale) / 2;
-    const offsetY = padding + (drawH - rangeY * scale) / 2;
-
-    const canvas = createCanvas(width, height);
+    const canvas = createCanvas(size, size);
     const ctx = canvas.getContext('2d');
 
     // Background
     ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, size, size);
 
     // Grid
     ctx.strokeStyle = '#2a2a4e';
     ctx.lineWidth = 0.5;
-    const gridStepX = drawW / 10;
-    const gridStepY = drawH / 10;
     for (let i = 0; i <= 10; i++) {
+      const pos = padding + (drawArea / 10) * i;
       ctx.beginPath();
-      ctx.moveTo(padding + gridStepX * i, padding);
-      ctx.lineTo(padding + gridStepX * i, height - padding);
+      ctx.moveTo(pos, padding);
+      ctx.lineTo(pos, size - padding);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(padding, padding + gridStepY * i);
-      ctx.lineTo(width - padding, padding + gridStepY * i);
+      ctx.moveTo(padding, pos);
+      ctx.lineTo(size - padding, pos);
       ctx.stroke();
     }
 
@@ -488,32 +474,27 @@ class Navimow extends utils.Adapter {
     ctx.lineCap = 'round';
     for (let i = 1; i < points.length; i++) {
       const t = i / (points.length - 1);
-      const r = Math.round(0 * (1 - t) + 0 * t);
-      const g = Math.round(120 * (1 - t) + 255 * t);
-      const b = Math.round(255 * (1 - t) + 100 * t);
-      ctx.strokeStyle = `rgb(${r},${g},${b})`;
+      const g = Math.round(120 + 135 * t);
+      const b = Math.round(255 - 155 * t);
+      ctx.strokeStyle = `rgb(0,${g},${b})`;
       ctx.beginPath();
-      ctx.moveTo(offsetX + (points[i - 1].x - minX) * scale, offsetY + (maxY - points[i - 1].y) * scale);
-      ctx.lineTo(offsetX + (points[i].x - minX) * scale, offsetY + (maxY - points[i].y) * scale);
+      ctx.moveTo(padding + (points[i - 1].x - minX) * scaleX, padding + (maxY - points[i - 1].y) * scaleY);
+      ctx.lineTo(padding + (points[i].x - minX) * scaleX, padding + (maxY - points[i].y) * scaleY);
       ctx.stroke();
     }
 
     // Start marker (blue)
     const first = points[0];
-    const fx = offsetX + (first.x - minX) * scale;
-    const fy = offsetY + (maxY - first.y) * scale;
     ctx.fillStyle = '#4488ff';
     ctx.beginPath();
-    ctx.arc(fx, fy, 5, 0, Math.PI * 2);
+    ctx.arc(padding + (first.x - minX) * scaleX, padding + (maxY - first.y) * scaleY, 5, 0, Math.PI * 2);
     ctx.fill();
 
     // Current position marker (red)
     const last = points[points.length - 1];
-    const lx = offsetX + (last.x - minX) * scale;
-    const ly = offsetY + (maxY - last.y) * scale;
     ctx.fillStyle = '#ff4444';
     ctx.beginPath();
-    ctx.arc(lx, ly, 5, 0, Math.PI * 2);
+    ctx.arc(padding + (last.x - minX) * scaleX, padding + (maxY - last.y) * scaleY, 5, 0, Math.PI * 2);
     ctx.fill();
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
