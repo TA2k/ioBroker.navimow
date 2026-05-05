@@ -51,6 +51,7 @@ class Navimow extends utils.Adapter {
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
     this.locationHistory = {};
+    this.lastVehicleState = {};
   }
 
   async onReady() {
@@ -353,9 +354,13 @@ class Navimow extends utils.Adapter {
         if (!this.locationHistory[deviceId]) {
           this.locationHistory[deviceId] = [];
         }
+        const history = this.locationHistory[deviceId];
         for (const p of points) {
           if (p && p.postureX != null && p.postureY != null) {
-            this.locationHistory[deviceId].push({ x: p.postureX, y: p.postureY });
+            const last = history[history.length - 1];
+            if (!last || last.x !== p.postureX || last.y !== p.postureY) {
+              history.push({ x: p.postureX, y: p.postureY });
+            }
           }
         }
         this.renderMap(deviceId);
@@ -856,10 +861,16 @@ class Navimow extends utils.Adapter {
     // ack:true = device confirmed value -> reset remote buttons on state change
     if (state.ack) {
       if (channel === 'status' && (command === 'vehicleState' || command === 'state' || command === 'status')) {
-        this.log.debug('Device state changed to "' + state.val + '", updating remote states');
-        this.updateRemoteStates(deviceId, String(state.val));
-        if (state.val === 'isRunning') {
-          this.locationHistory[deviceId] = [];
+        const newState = String(state.val);
+        const prevState = this.lastVehicleState[deviceId];
+        this.lastVehicleState[deviceId] = newState;
+        if (newState !== prevState) {
+          this.log.debug('Device state changed to "' + newState + '", updating remote states');
+          this.updateRemoteStates(deviceId, newState);
+          // Reset location history only when a new mowing session starts
+          if (newState === 'isRunning' && prevState && prevState !== 'isPaused') {
+            this.locationHistory[deviceId] = [];
+          }
         }
       }
       return;
