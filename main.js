@@ -429,7 +429,7 @@ class Navimow extends utils.Adapter {
     const points = this.locationHistory[deviceId];
     if (!points || points.length < 2) return;
 
-    const size = 800;
+    const maxSize = 800;
     const padding = 50;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -442,32 +442,43 @@ class Navimow extends utils.Adapter {
 
     const rangeX = maxX - minX || 1;
     const rangeY = maxY - minY || 1;
-    const drawArea = size - 2 * padding;
-    const scaleX = drawArea / rangeX;
-    const scaleY = drawArea / rangeY;
-    const scale = Math.min(scaleX, scaleY);
-    const offsetX = padding + (drawArea - rangeX * scale) / 2;
-    const offsetY = padding + (drawArea - rangeY * scale) / 2;
+    const aspect = rangeX / rangeY;
+    // Canvas size adapts to path aspect ratio (min 400px per axis)
+    let width, height;
+    if (aspect > 1) {
+      width = maxSize;
+      height = Math.max(400, Math.round(maxSize / aspect));
+    } else {
+      height = maxSize;
+      width = Math.max(400, Math.round(maxSize * aspect));
+    }
 
-    const canvas = createCanvas(size, size);
+    const drawW = width - 2 * padding;
+    const drawH = height - 2 * padding;
+    const scale = Math.min(drawW / rangeX, drawH / rangeY);
+    const offsetX = padding + (drawW - rangeX * scale) / 2;
+    const offsetY = padding + (drawH - rangeY * scale) / 2;
+
+    const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
     // Background
     ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, size, size);
+    ctx.fillRect(0, 0, width, height);
 
     // Grid
     ctx.strokeStyle = '#2a2a4e';
     ctx.lineWidth = 0.5;
+    const gridStepX = drawW / 10;
+    const gridStepY = drawH / 10;
     for (let i = 0; i <= 10; i++) {
-      const pos = padding + (drawArea / 10) * i;
       ctx.beginPath();
-      ctx.moveTo(pos, padding);
-      ctx.lineTo(pos, size - padding);
+      ctx.moveTo(padding + gridStepX * i, padding);
+      ctx.lineTo(padding + gridStepX * i, height - padding);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(padding, pos);
-      ctx.lineTo(size - padding, pos);
+      ctx.moveTo(padding, padding + gridStepY * i);
+      ctx.lineTo(width - padding, padding + gridStepY * i);
       ctx.stroke();
     }
 
