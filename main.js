@@ -870,13 +870,17 @@ class Navimow extends utils.Adapter {
     if (state.ack) {
       if (channel === 'status' && (command === 'vehicleState' || command === 'state' || command === 'status')) {
         const newState = String(state.val);
+        this.updateRemoteStates(deviceId, newState);
+      }
+      // Only track vehicleState for map history reset to avoid cross-field false transitions
+      if (channel === 'status' && command === 'vehicleState') {
+        const newState = String(state.val);
         const prevState = this.lastVehicleState[deviceId];
         this.lastVehicleState[deviceId] = newState;
-        if (newState !== prevState) {
-          this.log.debug('Device state changed to "' + newState + '", updating remote states');
-          this.updateRemoteStates(deviceId, newState);
-          // Reset location history only when a new mowing session starts
-          if (newState === 'isRunning' && prevState && prevState !== 'isPaused') {
+        if (newState !== prevState && prevState) {
+          this.log.debug(`vehicleState transition: "${prevState}" -> "${newState}"`);
+          if (newState === 'isRunning' && prevState !== 'isPaused') {
+            this.log.info(`New mowing session detected, resetting map for ${deviceId}`);
             this.locationHistory[deviceId] = [];
           }
         }
