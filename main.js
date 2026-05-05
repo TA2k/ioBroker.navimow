@@ -379,6 +379,9 @@ class Navimow extends utils.Adapter {
             }, 1000 - (now - this.lastMapRender));
           }
         }
+        if (history.length > 5000) {
+          history.splice(0, history.length - 5000);
+        }
       }
 
       // Arrays: use last entry (e.g. location)
@@ -426,8 +429,9 @@ class Navimow extends utils.Adapter {
   }
 
   renderMap(deviceId) {
-    const points = this.locationHistory[deviceId];
+    const points = this.locationHistory[deviceId]?.slice();
     if (!points || points.length < 2) return;
+    this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
     const size = 800;
     const padding = 50;
