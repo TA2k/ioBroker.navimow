@@ -360,9 +360,12 @@ class Navimow extends utils.Adapter {
         const prevLen = history.length;
         for (const p of points) {
           if (p && p.postureX != null && p.postureY != null) {
+            const x = parseFloat(p.postureX);
+            const y = parseFloat(p.postureY);
+            if (isNaN(x) || isNaN(y)) continue;
             const last = history[history.length - 1];
-            if (!last || last.x !== p.postureX || last.y !== p.postureY) {
-              history.push({ x: p.postureX, y: p.postureY });
+            if (!last || last.x !== x || last.y !== y) {
+              history.push({ x, y });
             }
           }
         }
