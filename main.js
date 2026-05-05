@@ -449,12 +449,8 @@ class Navimow extends utils.Adapter {
     const canvas = createCanvas(size, size);
     const ctx = canvas.getContext('2d');
 
-    // Background
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, size, size);
-
     // Grid
-    ctx.strokeStyle = '#2a2a4e';
+    ctx.strokeStyle = 'rgba(100,100,100,0.3)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 10; i++) {
       const pos = padding + (drawArea / 10) * i;
