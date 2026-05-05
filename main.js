@@ -505,7 +505,7 @@ class Navimow extends utils.Adapter {
     ctx.arc(lx, ly, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    const base64 = canvas.toBuffer('image/png').toString('base64');
+    const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
     this.setState(deviceId + '.map', base64, true);
   }
 
