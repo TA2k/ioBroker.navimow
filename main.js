@@ -52,6 +52,8 @@ class Navimow extends utils.Adapter {
     this.lastMqttMessage = 0;
     this.locationHistory = {};
     this.lastVehicleState = {};
+    this.lastMapRender = 0;
+    this.mapRenderTimeout = null;
   }
 
   async onReady() {
@@ -355,6 +357,7 @@ class Navimow extends utils.Adapter {
           this.locationHistory[deviceId] = [];
         }
         const history = this.locationHistory[deviceId];
+        const prevLen = history.length;
         for (const p of points) {
           if (p && p.postureX != null && p.postureY != null) {
             const last = history[history.length - 1];
@@ -363,7 +366,19 @@ class Navimow extends utils.Adapter {
             }
           }
         }
-        this.renderMap(deviceId);
+        if (history.length > prevLen) {
+          const now = Date.now();
+          if (!this.lastMapRender || now - this.lastMapRender >= 1000) {
+            this.lastMapRender = now;
+            this.renderMap(deviceId);
+          } else if (!this.mapRenderTimeout) {
+            this.mapRenderTimeout = setTimeout(() => {
+              this.mapRenderTimeout = null;
+              this.lastMapRender = Date.now();
+              this.renderMap(deviceId);
+            }, 1000 - (now - this.lastMapRender));
+          }
+        }
       }
 
       // Arrays: use last entry (e.g. location)
