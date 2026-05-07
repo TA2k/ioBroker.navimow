@@ -108,6 +108,76 @@ The `location` channel receives real-time position data via MQTT while the mower
 
 The position data can be visualized as a mowing map using Grafana (e.g. with the Plotly or Geomap panel) or ioBroker.vis.
 
+### Mowing Map
+
+The adapter renders a live mowing map as a PNG image (base64 data URI) in the state `{deviceId}.map`. The map is automatically updated during mowing and cleared when a new mowing session starts.
+
+#### VIS Position Script
+
+To position a mower icon on a static background image (e.g. a screenshot of your garden from the Navimow app) in ioBroker VIS, use the following JavaScript:
+
+```javascript
+// === Configuration ===
+const deviceId = 'NAVIMOW'; // Your device ID
+const prefix = 'navimow.0.' + deviceId;
+
+// Garden bounds (from Navimow app coordinates, adjust to your garden)
+const gartenXMin = 0.9;
+const gartenXMax = 18.5;
+const gartenYMin = -3.25;
+const gartenYMax = 14;
+
+// Image size in VIS (px)
+const bildX = 580;
+const bildY = 573;
+
+// Image position offset in VIS (px)
+const bildPosX = 30;
+const bildPosY = 30;
+
+// Border offsets if lawn doesn't fill entire image (px)
+const randLinks = 18;
+const randRechts = 16;
+const randOben = 14;
+const randUnten = 16;
+
+// Robot icon size (px)
+const robX = 32;
+const robY = 26;
+
+// Datapoints for VIS widget position (create manually)
+const dpPosX = '0_userdata.0.Navimow.Pos_X';
+const dpPosY = '0_userdata.0.Navimow.Pos_Y';
+
+// === Calculation ===
+const effX = bildX - randLinks - randRechts;
+const effY = bildY - randOben - randUnten;
+
+on({ id: [prefix + '.location.postureX', prefix + '.location.postureY'], change: 'any' }, () => {
+  const posX = getState(prefix + '.location.postureX').val;
+  const posY = getState(prefix + '.location.postureY').val;
+  if (posX == null || posY == null) return;
+
+  const pctX = (posX - gartenXMin) / (gartenXMax - gartenXMin);
+  const pctY = (posY - gartenYMin) / (gartenYMax - gartenYMin);
+
+  const pixelX = Math.round(effX * pctX + randLinks + bildPosX - robX / 2);
+  const pixelY = Math.round(bildY - randUnten - bildPosY - effY * pctY - robY / 2);
+
+  setState(dpPosX, pixelX, true);
+  setState(dpPosY, pixelY, true);
+});
+```
+
+**Setup:**
+
+1. Take a screenshot of your garden map from the Navimow app
+2. Use it as background image in a VIS view
+3. Adjust the garden bounds (`gartenXMin/Max`, `gartenYMin/Max`) to match your garden coordinates (visible in the location states)
+4. Adjust image size and border offsets to match your VIS layout
+5. Create the datapoints `Pos_X` and `Pos_Y` under `0_userdata.0`
+6. Add a VIS widget with a mower icon and bind its CSS `left`/`top` to the datapoints
+
 ## API
 
 Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA).
