@@ -6,7 +6,7 @@ const Json2iob = require('json2iob');
 const crypto = require('crypto');
 const mqtt = require('mqtt');
 const { URL } = require('url');
-const { createCanvas } = require('canvas');
+const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
 
