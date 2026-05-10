@@ -882,11 +882,14 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
-          if (newState === 'isRunning' && prevState !== 'isPaused') {
-            this.log.info(`New mowing session detected, resetting map for ${deviceId}`);
-            this.locationHistory[deviceId] = [];
-            this.setState(deviceId + '.map', '', true);
-          }
+        }
+      }
+      // Reset map when mowingPercentage drops to 0 (new mowing session)
+      if (channel === 'location' && command === 'mowingPercentage') {
+        if (Number(state.val) === 0 && this.locationHistory[deviceId]?.length > 0) {
+          this.log.info(`mowingPercentage=0, resetting map for ${deviceId}`);
+          this.locationHistory[deviceId] = [];
+          this.setState(deviceId + '.map', '', true);
         }
       }
       return;
