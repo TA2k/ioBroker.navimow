@@ -353,6 +353,19 @@ class Navimow extends utils.Adapter {
       // location channel: collect points and render map
       if (channel === 'location') {
         const points = Array.isArray(data) ? data : [data];
+
+        // Reset map when mowingPercentage=0 arrives (before collecting new points)
+        for (const p of points) {
+          if (p && p.mowingPercentage != null && Number(p.mowingPercentage) === 0) {
+            if (this.locationHistory[deviceId]?.length > 0) {
+              this.log.info(`mowingPercentage=0 via MQTT, resetting map for ${deviceId}`);
+              this.locationHistory[deviceId] = [];
+              this.setState(deviceId + '.map', '', true);
+            }
+            break;
+          }
+        }
+
         if (!this.locationHistory[deviceId]) {
           this.locationHistory[deviceId] = [];
         }
@@ -882,14 +895,6 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
-        }
-      }
-      // Reset map when mowingPercentage drops to 0 (new mowing session)
-      if (channel === 'location' && command === 'mowingPercentage') {
-        if (Number(state.val) === 0 && this.locationHistory[deviceId]?.length > 0) {
-          this.log.info(`mowingPercentage=0, resetting map for ${deviceId}`);
-          this.locationHistory[deviceId] = [];
-          this.setState(deviceId + '.map', '', true);
         }
       }
       return;
