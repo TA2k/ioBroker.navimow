@@ -54,13 +54,17 @@ class Navimow extends utils.Adapter {
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
+    this.httpPollRunning = false;
   }
 
   async onReady() {
     this.setState('info.connection', false, true);
-    if (this.config.interval < 0.5) {
-      this.log.info('Set interval to minimum 0.5');
-      this.config.interval = 0.5;
+    const configuredInterval = Number(this.config.interval);
+    if (!Number.isFinite(configuredInterval) || configuredInterval < 1) {
+      this.log.info('Set interval to minimum 1 minute');
+      this.config.interval = 1;
+    } else {
+      this.config.interval = configuredInterval;
     }
 
     this.subscribeStates('*');
@@ -133,20 +137,17 @@ class Navimow extends utils.Adapter {
         this.log.debug('Access token starts with: ' + tokenObj.access_token.substring(0, 20) + '...');
         await this.getDeviceList();
         this.log.debug('Device array: ' + JSON.stringify(this.deviceArray));
-        await this.updateDevices();
+        await this.pollDevices('startup');
 
         // Connect MQTT for real-time updates
         await this.connectMqtt();
 
-        // HTTP polling as fallback only when MQTT is stale (no message for 5 min)
+        // Periodic HTTP polling alongside MQTT real-time updates
         const pollMs = this.config.interval * 60 * 1000;
-        this.updateInterval = setInterval(() => {
-          const mqttStale = Date.now() - this.lastMqttMessage > 5 * 60 * 1000;
-          if (!this.mqttConnected || mqttStale) {
-            this.log.debug('MQTT ' + (this.mqttConnected ? 'stale' : 'disconnected') + ', polling via HTTP');
-            this.updateDevices();
-          }
-        }, pollMs);
+        this.log.info(
+          'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
+        );
+        this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
 
         // Schedule token refresh
         if (tokenObj.expires_in) {
@@ -811,6 +812,26 @@ class Navimow extends utils.Adapter {
       });
   }
 
+  async pollDevices(reason) {
+    if (this.httpPollRunning) {
+      this.log.debug('Skipping HTTP status poll (' + reason + '), previous poll still running');
+      return;
+    }
+    this.httpPollRunning = true;
+    try {
+      if (reason === 'interval') {
+        this.log.debug('Running periodic HTTP status poll');
+      } else {
+        this.log.debug('Running HTTP status poll (' + reason + ')');
+      }
+      await this.updateDevices();
+    } catch (error) {
+      this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
+    } finally {
+      this.httpPollRunning = false;
+    }
+  }
+
   sendMowerCommand(deviceId, commandName) {
     const mapping = COMMAND_MAP[commandName];
     if (!mapping) {
@@ -856,7 +877,7 @@ class Navimow extends utils.Adapter {
         this.log.info('Command "' + commandName + '" sent successfully');
         clearTimeout(this.refreshTimeout);
         this.refreshTimeout = setTimeout(() => {
-          this.updateDevices();
+          this.pollDevices('post-command');
         }, 5 * 1000);
       })
       .catch((error) => {
@@ -908,7 +929,7 @@ class Navimow extends utils.Adapter {
     this.log.debug('Remote command triggered: ' + command + ' for device ' + deviceId);
 
     if (command === 'Refresh') {
-      this.updateDevices();
+      this.pollDevices('manual refresh');
       return;
     }
 

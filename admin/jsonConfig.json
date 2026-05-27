@@ -47,15 +47,15 @@
     "interval": {
       "type": "number",
       "newLine": true,
-      "min": 0.5,
+      "min": 1,
       "xs": 12, "sm": 2, "md": 2, "lg": 2, "xl": 2,
       "label": {
-        "en": "Update interval (in minutes)",
-        "de": "Aktualisierungsintervall (in Minuten)"
+        "en": "HTTP polling interval (in minutes)",
+        "de": "HTTP-Polling-Intervall (in Minuten)"
       },
       "help": {
-        "en": "HTTP polling fallback interval. Only used when MQTT is disconnected or stale (no message for 5 min).",
-        "de": "HTTP-Polling-Fallback-Intervall. Wird nur verwendet, wenn MQTT getrennt oder veraltet ist (keine Nachricht seit 5 Min.)."
+        "en": "Periodic HTTP status polling interval. MQTT remains active for real-time updates.",
+        "de": "Periodisches HTTP-Status-Polling-Intervall. MQTT bleibt für Echtzeit-Updates aktiv."
       }
     }
   }

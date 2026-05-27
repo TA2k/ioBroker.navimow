@@ -4,8 +4,8 @@
     "version": "1.0.2",
     "news": {
       "1.0.2": {
-        "en": "Add MQTT location topic with real-time position tracking\nGeneric MQTT topic handling via wildcard subscription",
-        "de": "MQTT Standortthema mit Echtzeit-Positionsverfolgung hinzufügen\nGenerisches MQTT-Themenhandling über Wildcard-Abonnement",
+        "en": "Add MQTT location topic with real-time position tracking\nGeneric MQTT topic handling via wildcard subscription\nAdd periodic HTTP status polling alongside MQTT",
+        "de": "MQTT Standortthema mit Echtzeit-Positionsverfolgung hinzufügen\nGenerisches MQTT-Themenhandling über Wildcard-Abonnement\nPeriodisches HTTP-Status-Polling zusätzlich zu MQTT hinzugefügt",
         "ru": "Добавить тему местоположения MQTT с отслеживанием местоположения в реальном времени\nОбработка темы MQTT через подписку wildcard",
         "pt": "Adicionar tópico de localização MQTT com rastreamento de posição em tempo real\nTratamento genérico de tópicos MQTT através de assinatura wildcard",
         "nl": "MQTT-locatieonderwerp toevoegen met real-time position tracking\nGenerieke MQTT onderwerp behandeling via wildcard abonnement",
@@ -128,7 +128,7 @@
   "protectedNative": [],
   "native": {
     "authCode": "",
-    "interval": 10
+    "interval": 1
   },
   "objects": [],
   "instanceObjects": [
