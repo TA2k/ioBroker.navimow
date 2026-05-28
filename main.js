@@ -60,9 +60,9 @@ class Navimow extends utils.Adapter {
   async onReady() {
     this.setState('info.connection', false, true);
     const configuredInterval = Number(this.config.interval);
-    if (!Number.isFinite(configuredInterval) || configuredInterval < 1) {
-      this.log.info('Set interval to minimum 1 minute');
-      this.config.interval = 1;
+    if (!Number.isFinite(configuredInterval) || configuredInterval < 0) {
+      this.log.info('Invalid interval, defaulting to 5 minutes');
+      this.config.interval = 5;
     } else {
       this.config.interval = configuredInterval;
     }
@@ -142,12 +142,16 @@ class Navimow extends utils.Adapter {
         // Connect MQTT for real-time updates
         await this.connectMqtt();
 
-        // Periodic HTTP polling alongside MQTT real-time updates
-        const pollMs = this.config.interval * 60 * 1000;
-        this.log.info(
-          'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
-        );
-        this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
+        // Periodic HTTP polling alongside MQTT real-time updates (0 = disabled)
+        if (this.config.interval > 0) {
+          const pollMs = this.config.interval * 60 * 1000;
+          this.log.info(
+            'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
+          );
+          this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
+        } else {
+          this.log.info('Periodic HTTP status polling disabled (interval=0). Relying on MQTT for updates.');
+        }
 
         // Schedule token refresh
         if (tokenObj.expires_in) {

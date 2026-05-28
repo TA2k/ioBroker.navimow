@@ -128,7 +128,7 @@
   "protectedNative": [],
   "native": {
     "authCode": "",
-    "interval": 1
+    "interval": 5
   },
   "objects": [],
   "instanceObjects": [

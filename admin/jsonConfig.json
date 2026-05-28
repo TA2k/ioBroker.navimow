@@ -47,15 +47,15 @@
     "interval": {
       "type": "number",
       "newLine": true,
-      "min": 1,
+      "min": 0,
       "xs": 12, "sm": 2, "md": 2, "lg": 2, "xl": 2,
       "label": {
         "en": "HTTP polling interval (in minutes)",
         "de": "HTTP-Polling-Intervall (in Minuten)"
       },
       "help": {
-        "en": "Periodic HTTP status polling interval. MQTT remains active for real-time updates.",
-        "de": "Periodisches HTTP-Status-Polling-Intervall. MQTT bleibt für Echtzeit-Updates aktiv."
+        "en": "Periodic HTTP status polling interval (0 = disabled, MQTT only). MQTT remains active for real-time updates.",
+        "de": "Periodisches HTTP-Status-Polling-Intervall (0 = deaktiviert, nur MQTT). MQTT bleibt für Echtzeit-Updates aktiv."
       }
     }
   }
