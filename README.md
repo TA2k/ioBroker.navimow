@@ -23,9 +23,11 @@ ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow S
 
 - OAuth2 login via Navimow account
 - Real-time status updates via MQTT (WebSocket Secure)
-- HTTP polling as fallback
+- Periodic HTTP status polling alongside MQTT
 - Remote control: Start, Stop, Pause, Resume, Dock
 - Automatic token refresh with MQTT reconnect
+
+MQTT provides real-time event and location updates, while periodic HTTP polling refreshes general status values (for example battery, status and vehicleState) to keep them up to date.
 
 ## Setup
 
@@ -38,6 +40,8 @@ ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow S
 7. The adapter exchanges the code for a token and starts automatically
 
 The token is refreshed automatically. A re-login is only needed if the refresh token expires.
+
+The **Update interval** setting defines the periodic HTTP status polling interval in minutes (minimum: 1 minute). MQTT stays active in parallel for real-time updates.
 
 ## States
 
