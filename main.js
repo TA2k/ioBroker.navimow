@@ -259,10 +259,13 @@ class Navimow extends utils.Adapter {
         this.log.info('MQTT connecting to ' + brokerUrl);
         this.log.debug('MQTT clientId: ' + mqttOpts.clientId);
         this.log.debug('MQTT username: ' + (mqttUsername || 'none'));
-        this.mqttClient = mqtt.connect(brokerUrl, mqttOpts);
-        const mqttClient = this.mqttClient;
+        const mqttClient = mqtt.connect(brokerUrl, mqttOpts);
+        this.mqttClient = mqttClient;
 
-        this.mqttClient.on('connect', () => {
+        mqttClient.on('connect', () => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttErrorCount > 0) {
             this.log.info('MQTT reconnected successfully after ' + this.mqttErrorCount + ' error(s)');
           } else {
@@ -271,9 +274,7 @@ class Navimow extends utils.Adapter {
           this.mqttConnected = true;
           this.mqttErrorCount = 0;
           // Reset reconnect interval on successful connect
-          if (this.mqttClient) {
-            this.mqttClient.options.reconnectPeriod = 10000;
-          }
+          mqttClient.options.reconnectPeriod = 10000;
           // Subscribe to device topics
           for (const deviceId of this.deviceArray) {
             const topics = [
@@ -284,7 +285,10 @@ class Navimow extends utils.Adapter {
               '/downlink/vehicle/' + deviceId + '/#',
             ];
             for (const topic of topics) {
-              this.mqttClient && this.mqttClient.subscribe(topic, (err) => {
+              mqttClient.subscribe(topic, (err) => {
+                if (this.mqttClient !== mqttClient) {
+                  return;
+                }
                 if (err) {
                   this.log.error('MQTT subscribe error for ' + topic + ': ' + err.message);
                 } else {
@@ -295,41 +299,55 @@ class Navimow extends utils.Adapter {
           }
         });
 
-        this.mqttClient.on('message', (topic, payload) => {
+        mqttClient.on('message', (topic, payload) => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           this.lastMqttMessage = Date.now();
           this.handleMqttMessage(topic, payload);
         });
 
-        this.mqttClient.on('error', (err) => {
+        mqttClient.on('error', (err) => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           this.mqttErrorCount++;
           if (this.mqttErrorCount === 1) {
             this.log.error('MQTT error: ' + err.message);
           } else {
             this.log.debug('MQTT error: ' + err.message);
           }
-          if (this.mqttErrorCount === 3 && this.mqttClient) {
+          if (this.mqttErrorCount === 3) {
             this.log.info('MQTT repeated errors, increasing reconnect interval to 10 min. HTTP polling is active as fallback.');
-            this.mqttClient.options.reconnectPeriod = 600000;
+            mqttClient.options.reconnectPeriod = 600000;
           }
           if ('code' in err) {
             this.log.debug('MQTT error code: ' + /** @type {any} */ (err).code);
           }
         });
 
-        this.mqttClient.on('close', () => {
+        mqttClient.on('close', () => {
+          // Refresh MQTT credentials on unplanned disconnect (userName/pwdInfo are bound to OAuth token)
+          if (/** @type {any} */ (mqttClient).suppressCredentialRefresh) {
+            this.log.debug('MQTT credential refresh skipped for controlled disconnect');
+            return;
+          }
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttConnected) {
             this.log.info('MQTT connection closed');
           }
           this.mqttConnected = false;
-          // Refresh MQTT credentials on unplanned disconnect (userName/pwdInfo are bound to OAuth token)
-          if (/** @type {any} */ (mqttClient).suppressCredentialRefresh) {
-            this.log.debug('MQTT credential refresh skipped for controlled disconnect');
-          } else if (!this.mqttRefreshing) {
+          if (!this.mqttRefreshing) {
             this.refreshMqttCredentials();
           }
         });
 
-        this.mqttClient.on('reconnect', () => {
+        mqttClient.on('reconnect', () => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttErrorCount >= 3) {
             this.log.info('MQTT reconnecting...');
           } else {
@@ -590,7 +608,9 @@ class Navimow extends utils.Adapter {
       } else {
         this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
       }
-      this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', 0, true);
+      const lastLocation = this.lastLocationMessage[deviceId] || 0;
+      const ageSeconds = lastLocation ? Math.round((now - lastLocation) / 1000) : 0;
+      this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
       return;
     }
 
@@ -643,7 +663,7 @@ class Navimow extends utils.Adapter {
     try {
       await this.disconnectMqtt(true);
       await this.connectMqtt();
-      this.log.info('MQTT location stream reconnect completed: device=' + deviceId);
+      this.log.info('MQTT location stream reconnect initiated: device=' + deviceId);
     } catch (e) {
       this.log.warn('MQTT location recovery failed: device=' + deviceId + ' error=' + e.message);
     } finally {
