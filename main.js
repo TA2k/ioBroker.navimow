@@ -157,7 +157,7 @@ class Navimow extends utils.Adapter {
         if (tokenObj.expires_in) {
           const refreshMs = (tokenObj.expires_in - 300) * 1000;
           if (refreshMs > 0) {
-            this.refreshTokenTimeout = setTimeout(() => {
+            this.refreshTokenTimeout = this.setTimeout(() => {
               this.handleTokenRefresh();
             }, refreshMs);
             this.log.info('Token refresh scheduled in ' + Math.round(refreshMs / 60000) + ' min');
@@ -393,7 +393,7 @@ class Navimow extends utils.Adapter {
             this.lastMapRender = now;
             this.renderMap(deviceId);
           } else if (!this.mapRenderTimeout) {
-            this.mapRenderTimeout = setTimeout(() => {
+            this.mapRenderTimeout = this.setTimeout(() => {
               this.mapRenderTimeout = null;
               this.lastMapRender = Date.now();
               this.renderMap(deviceId);
@@ -662,7 +662,7 @@ class Navimow extends utils.Adapter {
       if (tokenData.expires_in) {
         const refreshMs = (tokenData.expires_in - 300) * 1000;
         if (refreshMs > 0) {
-          this.refreshTokenTimeout = setTimeout(() => {
+          this.refreshTokenTimeout = this.setTimeout(() => {
             this.handleTokenRefresh();
           }, refreshMs);
         }
@@ -879,8 +879,8 @@ class Navimow extends utils.Adapter {
           }
         }
         this.log.info('Command "' + commandName + '" sent successfully');
-        clearTimeout(this.refreshTimeout);
-        this.refreshTimeout = setTimeout(() => {
+        this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
+        this.refreshTimeout = this.setTimeout(() => {
           this.pollDevices('post-command');
         }, 5 * 1000);
       })
@@ -950,8 +950,9 @@ class Navimow extends utils.Adapter {
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
-      this.refreshTokenTimeout && clearTimeout(this.refreshTokenTimeout);
-      this.refreshTimeout && clearTimeout(this.refreshTimeout);
+      this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
+      this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
+      this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
       callback();
     } catch {
       callback();
