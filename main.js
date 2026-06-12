@@ -580,15 +580,19 @@ class Navimow extends utils.Adapter {
 
     return /** @type {Promise<void>} */ (new Promise((resolve) => {
       let resolved = false;
+      let timeoutHandle = null;
       const finish = () => {
         if (resolved) return;
         resolved = true;
+        if (timeoutHandle) {
+          this.clearTimeout(timeoutHandle);
+        }
         this.log.info('MQTT disconnected');
         resolve();
       };
       client.once('close', finish);
       client.end(true, finish);
-      setTimeout(finish, 2000);
+      timeoutHandle = this.setTimeout(finish, 2000);
     }));
   }
 
@@ -602,12 +606,8 @@ class Navimow extends utils.Adapter {
 
     if (!active) {
       this.runningSince[deviceId] = 0;
-      if (this.locationMqttStale[deviceId]) {
-        this.locationMqttStale[deviceId] = false;
-        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
-      } else {
-        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
-      }
+      this.locationMqttStale[deviceId] = false;
+      this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
       const lastLocation = this.lastLocationMessage[deviceId] || 0;
       const ageSeconds = lastLocation ? Math.round((now - lastLocation) / 1000) : 0;
       this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
