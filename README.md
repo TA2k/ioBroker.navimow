@@ -24,10 +24,11 @@ ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow S
 - OAuth2 login via Navimow account
 - Real-time status updates via MQTT (WebSocket Secure)
 - Periodic HTTP status polling alongside MQTT
+- MQTT location watchdog with controlled reconnect during active mowing
 - Remote control: Start, Stop, Pause, Resume, Dock
 - Automatic token refresh with MQTT reconnect
 
-MQTT provides real-time event and location updates, while periodic HTTP polling refreshes general status values (for example battery, status and vehicleState) to keep them up to date.
+Periodic HTTP polling refreshes general status values (for example battery, status and vehicleState) to keep them up to date. Location data and mowing progress (`location.mowingPercentage`) are provided by MQTT. During active mowing, the adapter watches the MQTT location stream and performs a controlled MQTT reconnect if location updates stop arriving while HTTP still reports an active mower state.
 
 ## Setup
 
@@ -55,7 +56,8 @@ For each mower device the following channels are created:
 | `{deviceId}.events`      | MQTT events                                              |
 | `{deviceId}.attributes`  | MQTT device attributes                                   |
 | `{deviceId}.remote`      | Remote control buttons                                   |
-| `{deviceId}.location`    | Real-time mower position (via MQTT)                      |
+| `{deviceId}.location`    | Real-time mower position and mowing progress (via MQTT)  |
+| `{deviceId}.diagnostics` | MQTT location watchdog diagnostics                       |
 
 ### vehicleState
 
@@ -100,7 +102,7 @@ Remote states reflect the current device state with `ack:true`. For example, whe
 
 ### Location
 
-The `location` channel receives real-time position data via MQTT while the mower is active. Coordinates are relative to the mowing area (in meters), not GPS.
+The `location` channel receives real-time position data and mowing progress (`mowingPercentage`) via MQTT while the mower is active. Coordinates are relative to the mowing area (in meters), not GPS. These values are not derived from periodic HTTP status polling.
 
 | State                  | Description            |
 | ---------------------- | ---------------------- |
@@ -111,6 +113,19 @@ The `location` channel receives real-time position data via MQTT while the mower
 | `location.time`        | Timestamp              |
 
 The position data can be visualized as a mowing map using Grafana (e.g. with the Plotly or Geomap panel) or ioBroker.vis.
+
+### Diagnostics
+
+The `diagnostics` channel contains read-only values for the MQTT location watchdog.
+
+| State                                | Description                                      |
+| ------------------------------------ | ------------------------------------------------ |
+| `diagnostics.lastLocationMessage`    | Timestamp of the last received MQTT location message |
+| `diagnostics.locationMqttStale`      | `true` if the location stream is stale while the mower is active |
+| `diagnostics.lastMqttRecovery`       | Timestamp of the last controlled MQTT recovery   |
+| `diagnostics.lastLocationAgeSeconds` | Age of the last MQTT location message in seconds |
+
+If HTTP polling reports an active mowing state but no MQTT `location` message is received for at least three minutes, the adapter marks the location stream as stale and reconnects MQTT. Recoveries are rate-limited to at most once every five minutes per device. Battery, status and `vehicleState` continue to be updated by periodic HTTP polling independently from this watchdog.
 
 ### Mowing Map
 

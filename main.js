@@ -17,6 +17,11 @@ const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
 const REDIRECT_URI = 'http://localhost:1/callback';
 
 
+// Location MQTT watchdog
+const LOCATION_STALE_MS = 3 * 60 * 1000;
+const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
+const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
+
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
   start: { command: 'action.devices.commands.StartStop', params: { on: true } },
@@ -50,6 +55,11 @@ class Navimow extends utils.Adapter {
     this.mqttRefreshing = false;
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
+    this.lastLocationMessage = {};
+    this.lastLocationRecovery = {};
+    this.locationRecoveryRunning = false;
+    this.runningSince = {};
+    this.locationMqttStale = {};
     this.locationHistory = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
@@ -249,9 +259,13 @@ class Navimow extends utils.Adapter {
         this.log.info('MQTT connecting to ' + brokerUrl);
         this.log.debug('MQTT clientId: ' + mqttOpts.clientId);
         this.log.debug('MQTT username: ' + (mqttUsername || 'none'));
-        this.mqttClient = mqtt.connect(brokerUrl, mqttOpts);
+        const mqttClient = mqtt.connect(brokerUrl, mqttOpts);
+        this.mqttClient = mqttClient;
 
-        this.mqttClient.on('connect', () => {
+        mqttClient.on('connect', () => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttErrorCount > 0) {
             this.log.info('MQTT reconnected successfully after ' + this.mqttErrorCount + ' error(s)');
           } else {
@@ -260,9 +274,7 @@ class Navimow extends utils.Adapter {
           this.mqttConnected = true;
           this.mqttErrorCount = 0;
           // Reset reconnect interval on successful connect
-          if (this.mqttClient) {
-            this.mqttClient.options.reconnectPeriod = 10000;
-          }
+          mqttClient.options.reconnectPeriod = 10000;
           // Subscribe to device topics
           for (const deviceId of this.deviceArray) {
             const topics = [
@@ -273,7 +285,10 @@ class Navimow extends utils.Adapter {
               '/downlink/vehicle/' + deviceId + '/#',
             ];
             for (const topic of topics) {
-              this.mqttClient && this.mqttClient.subscribe(topic, (err) => {
+              mqttClient.subscribe(topic, (err) => {
+                if (this.mqttClient !== mqttClient) {
+                  return;
+                }
                 if (err) {
                   this.log.error('MQTT subscribe error for ' + topic + ': ' + err.message);
                 } else {
@@ -284,39 +299,55 @@ class Navimow extends utils.Adapter {
           }
         });
 
-        this.mqttClient.on('message', (topic, payload) => {
+        mqttClient.on('message', (topic, payload) => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           this.lastMqttMessage = Date.now();
           this.handleMqttMessage(topic, payload);
         });
 
-        this.mqttClient.on('error', (err) => {
+        mqttClient.on('error', (err) => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           this.mqttErrorCount++;
           if (this.mqttErrorCount === 1) {
             this.log.error('MQTT error: ' + err.message);
           } else {
             this.log.debug('MQTT error: ' + err.message);
           }
-          if (this.mqttErrorCount === 3 && this.mqttClient) {
+          if (this.mqttErrorCount === 3) {
             this.log.info('MQTT repeated errors, increasing reconnect interval to 10 min. HTTP polling is active as fallback.');
-            this.mqttClient.options.reconnectPeriod = 600000;
+            mqttClient.options.reconnectPeriod = 600000;
           }
           if ('code' in err) {
             this.log.debug('MQTT error code: ' + /** @type {any} */ (err).code);
           }
         });
 
-        this.mqttClient.on('close', () => {
+        mqttClient.on('close', () => {
+          // Refresh MQTT credentials on unplanned disconnect (userName/pwdInfo are bound to OAuth token)
+          if (/** @type {any} */ (mqttClient).suppressCredentialRefresh) {
+            this.log.debug('MQTT credential refresh skipped for controlled disconnect');
+            return;
+          }
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttConnected) {
             this.log.info('MQTT connection closed');
           }
           this.mqttConnected = false;
-          // Refresh MQTT credentials on disconnect (userName/pwdInfo are bound to OAuth token)
           if (!this.mqttRefreshing) {
             this.refreshMqttCredentials();
           }
         });
 
-        this.mqttClient.on('reconnect', () => {
+        mqttClient.on('reconnect', () => {
+          if (this.mqttClient !== mqttClient) {
+            return;
+          }
           if (this.mqttErrorCount >= 3) {
             this.log.info('MQTT reconnecting...');
           } else {
@@ -344,6 +375,18 @@ class Navimow extends utils.Adapter {
       if (!this.deviceArray.includes(deviceId)) {
         this.log.debug('MQTT message for unknown device: ' + deviceId);
         return;
+      }
+
+      if (channel === 'location') {
+        const now = Date.now();
+        this.lastLocationMessage[deviceId] = now;
+        this.setState(deviceId + '.diagnostics.lastLocationMessage', now, true);
+        this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', 0, true);
+        if (this.locationMqttStale[deviceId]) {
+          this.locationMqttStale[deviceId] = false;
+          this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+          this.log.info('MQTT location stream recovered: device=' + deviceId);
+        }
       }
 
       let data = JSON.parse(payload.toString());
@@ -523,12 +566,108 @@ class Navimow extends utils.Adapter {
     this.setState(deviceId + '.map', base64, true);
   }
 
-  disconnectMqtt() {
-    if (this.mqttClient) {
-      this.mqttClient.end(true);
-      this.mqttClient = null;
-      this.mqttConnected = false;
-      this.log.info('MQTT disconnected');
+  disconnectMqtt(suppressCredentialRefresh = false) {
+    if (!this.mqttClient) {
+      return Promise.resolve();
+    }
+
+    const client = this.mqttClient;
+    this.mqttClient = null;
+    this.mqttConnected = false;
+    if (suppressCredentialRefresh) {
+      /** @type {any} */ (client).suppressCredentialRefresh = true;
+    }
+
+    return /** @type {Promise<void>} */ (new Promise((resolve) => {
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        this.log.info('MQTT disconnected');
+        resolve();
+      };
+      client.once('close', finish);
+      client.end(true, finish);
+      setTimeout(finish, 2000);
+    }));
+  }
+
+  isLocationActiveState(vehicleState) {
+    return ACTIVE_LOCATION_STATES.has(String(vehicleState));
+  }
+
+  checkLocationWatchdog(deviceId, vehicleState) {
+    const now = Date.now();
+    const active = this.isLocationActiveState(vehicleState);
+
+    if (!active) {
+      this.runningSince[deviceId] = 0;
+      if (this.locationMqttStale[deviceId]) {
+        this.locationMqttStale[deviceId] = false;
+        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+      } else {
+        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+      }
+      const lastLocation = this.lastLocationMessage[deviceId] || 0;
+      const ageSeconds = lastLocation ? Math.round((now - lastLocation) / 1000) : 0;
+      this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
+      return;
+    }
+
+    if (!this.runningSince[deviceId]) {
+      this.runningSince[deviceId] = now;
+    }
+
+    const activeAge = now - this.runningSince[deviceId];
+    const lastLocation = this.lastLocationMessage[deviceId] || 0;
+    const locationAge = lastLocation ? now - lastLocation : activeAge;
+    const ageSeconds = Math.round(locationAge / 1000);
+    this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
+
+    if (activeAge < LOCATION_STALE_MS || locationAge < LOCATION_STALE_MS) {
+      if (this.locationMqttStale[deviceId]) {
+        this.locationMqttStale[deviceId] = false;
+        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+      }
+      return;
+    }
+
+    this.locationMqttStale[deviceId] = true;
+    this.setState(deviceId + '.diagnostics.locationMqttStale', true, true);
+
+    const lastRecovery = this.lastLocationRecovery[deviceId] || 0;
+    if (now - lastRecovery < LOCATION_RECOVERY_COOLDOWN_MS) {
+      this.log.debug(
+        'MQTT location stream stale: device=' + deviceId + ' vehicleState=' + vehicleState + ' age=' + ageSeconds + 's action=cooldown',
+      );
+      return;
+    }
+
+    this.log.warn(
+      'MQTT location stream stale: device=' + deviceId + ' vehicleState=' + vehicleState + ' age=' + ageSeconds + 's action=reconnect',
+    );
+    this.recoverMqttLocationStream(deviceId);
+  }
+
+  async recoverMqttLocationStream(deviceId) {
+    if (this.locationRecoveryRunning) {
+      this.log.debug('MQTT location recovery already running, skipping device=' + deviceId);
+      return;
+    }
+
+    this.locationRecoveryRunning = true;
+    const now = Date.now();
+    this.lastLocationRecovery[deviceId] = now;
+    this.setState(deviceId + '.diagnostics.lastMqttRecovery', now, true);
+
+    try {
+      await this.disconnectMqtt(true);
+      await this.connectMqtt();
+      this.log.info('MQTT location stream reconnect initiated: device=' + deviceId);
+    } catch (e) {
+      this.log.warn('MQTT location recovery failed: device=' + deviceId + ' error=' + e.message);
+    } finally {
+      this.locationRecoveryRunning = false;
     }
   }
 
@@ -560,8 +699,9 @@ class Navimow extends utils.Adapter {
             this.mqttClient.options.username = newUsername;
             this.mqttClient.options.password = newPassword;
           }
-          if (this.mqttClient.options.wsOptions && this.mqttClient.options.wsOptions.headers) {
-            this.mqttClient.options.wsOptions.headers.Authorization = 'Bearer ' + this.session.access_token;
+          const wsOptions = /** @type {any} */ (this.mqttClient.options.wsOptions);
+          if (wsOptions && wsOptions.headers) {
+            wsOptions.headers.Authorization = 'Bearer ' + this.session.access_token;
           }
           this.log.debug('MQTT credentials updated for next reconnect');
         }
@@ -727,6 +867,31 @@ class Navimow extends utils.Adapter {
             common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
             native: {},
           });
+          await this.setObjectNotExistsAsync(id + '.diagnostics', {
+            type: 'channel',
+            common: { name: 'Diagnostics' },
+            native: {},
+          });
+          await this.setObjectNotExistsAsync(id + '.diagnostics.lastLocationMessage', {
+            type: 'state',
+            common: { name: 'Last MQTT location message', write: false, read: true, type: 'number', role: 'date' },
+            native: {},
+          });
+          await this.setObjectNotExistsAsync(id + '.diagnostics.locationMqttStale', {
+            type: 'state',
+            common: { name: 'MQTT location stream stale', write: false, read: true, type: 'boolean', role: 'indicator' },
+            native: {},
+          });
+          await this.setObjectNotExistsAsync(id + '.diagnostics.lastMqttRecovery', {
+            type: 'state',
+            common: { name: 'Last MQTT recovery', write: false, read: true, type: 'number', role: 'date' },
+            native: {},
+          });
+          await this.setObjectNotExistsAsync(id + '.diagnostics.lastLocationAgeSeconds', {
+            type: 'state',
+            common: { name: 'Last MQTT location age', write: false, read: true, type: 'number', role: 'value', unit: 's' },
+            native: {},
+          });
 
           const remoteArray = [
             { command: 'Refresh', name: 'Refresh status' },
@@ -802,6 +967,9 @@ class Navimow extends utils.Adapter {
             states,
           });
 
+          if (deviceData.vehicleState != null) {
+            this.checkLocationWatchdog(id, deviceData.vehicleState);
+          }
         }
       })
       .catch((error) => {
