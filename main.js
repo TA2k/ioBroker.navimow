@@ -45,6 +45,7 @@ class Navimow extends utils.Adapter {
     this.requestClient = axios.create({
       baseURL: API_BASE_URL,
       headers: { 'Content-Type': 'application/json' },
+      timeout: 30000,
     });
     this.session = {};
     this.updateInterval = null;
@@ -65,6 +66,7 @@ class Navimow extends utils.Adapter {
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
     this.httpPollRunning = false;
+    this.httpPollStartedAt = 0;
   }
 
   async onReady() {
@@ -958,6 +960,29 @@ class Navimow extends utils.Adapter {
             continue;
           }
 
+          // Derive battery from capacityRemaining[].rawValue (PERCENTAGE) since
+          // getVehicleStatus does not carry a direct battery field; battery
+          // would otherwise only update via MQTT state pushes which are unreliable.
+          if (deviceData.battery == null && Array.isArray(deviceData.capacityRemaining)) {
+            let battery = null;
+            for (const item of deviceData.capacityRemaining) {
+              if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
+                const v = Number(item.rawValue);
+                if (Number.isFinite(v)) {
+                  battery = v;
+                  break;
+                }
+              }
+            }
+            if (battery == null && deviceData.capacityRemaining[0]) {
+              const v = Number(deviceData.capacityRemaining[0].rawValue);
+              if (Number.isFinite(v)) battery = v;
+            }
+            if (battery != null) {
+              deviceData.battery = battery;
+            }
+          }
+
           this.setState(id + '.status.json', JSON.stringify(deviceData), true);
 
           this.json2iob.parse(id + '.status', deviceData, {
@@ -985,22 +1010,34 @@ class Navimow extends utils.Adapter {
   }
 
   async pollDevices(reason) {
-    if (this.httpPollRunning) {
+    // Stale-lock recovery: if a previous poll has been "running" for too long
+    // (e.g. network stack hung past axios timeout), force-release the lock.
+    if (this.httpPollRunning && this.httpPollStartedAt && Date.now() - this.httpPollStartedAt > 60000) {
+      this.log.warn('HTTP status poll lock stuck for >60s, force-releasing');
+      this.httpPollRunning = false;
+    }
+    const isManual = reason === 'manual refresh';
+    if (this.httpPollRunning && !isManual) {
       this.log.debug('Skipping HTTP status poll (' + reason + '), previous poll still running');
       return;
     }
-    this.httpPollRunning = true;
+    // Manual refresh bypasses the lock; only non-manual polls own/release it.
+    if (!isManual) {
+      this.httpPollRunning = true;
+      this.httpPollStartedAt = Date.now();
+    } else if (this.httpPollRunning) {
+      this.log.debug('Manual refresh bypassing poll lock');
+    }
     try {
-      if (reason === 'interval') {
-        this.log.debug('Running periodic HTTP status poll');
-      } else {
-        this.log.debug('Running HTTP status poll (' + reason + ')');
-      }
+      this.log.debug(reason === 'interval' ? 'Running periodic HTTP status poll' : 'Running HTTP status poll (' + reason + ')');
       await this.updateDevices();
     } catch (error) {
       this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
     } finally {
-      this.httpPollRunning = false;
+      if (!isManual) {
+        this.httpPollRunning = false;
+        this.httpPollStartedAt = 0;
+      }
     }
   }
 
