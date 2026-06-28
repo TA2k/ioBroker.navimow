@@ -67,6 +67,7 @@ class Navimow extends utils.Adapter {
     this.mapRenderTimeout = null;
     this.httpPollRunning = false;
     this.httpPollStartedAt = 0;
+    this.httpPollToken = 0;
   }
 
   async onReady() {
@@ -963,23 +964,17 @@ class Navimow extends utils.Adapter {
           // Derive battery from capacityRemaining[].rawValue (PERCENTAGE) since
           // getVehicleStatus does not carry a direct battery field; battery
           // would otherwise only update via MQTT state pushes which are unreliable.
+          // Only accept entries explicitly marked as PERCENTAGE - other units
+          // (Wh, mAh) would write nonsense into status.battery.
           if (deviceData.battery == null && Array.isArray(deviceData.capacityRemaining)) {
-            let battery = null;
             for (const item of deviceData.capacityRemaining) {
               if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
                 const v = Number(item.rawValue);
                 if (Number.isFinite(v)) {
-                  battery = v;
+                  deviceData.battery = v;
                   break;
                 }
               }
-            }
-            if (battery == null && deviceData.capacityRemaining[0]) {
-              const v = Number(deviceData.capacityRemaining[0].rawValue);
-              if (Number.isFinite(v)) battery = v;
-            }
-            if (battery != null) {
-              deviceData.battery = battery;
             }
           }
 
@@ -1010,22 +1005,28 @@ class Navimow extends utils.Adapter {
   }
 
   async pollDevices(reason) {
+    const isManual = reason === 'manual refresh';
     // Stale-lock recovery: if a previous poll has been "running" for too long
     // (e.g. network stack hung past axios timeout), force-release the lock.
+    // The old poll's finally{} won't touch the new lock because it compares tokens.
     if (this.httpPollRunning && this.httpPollStartedAt && Date.now() - this.httpPollStartedAt > 60000) {
       this.log.warn('HTTP status poll lock stuck for >60s, force-releasing');
       this.httpPollRunning = false;
+      this.httpPollStartedAt = 0;
     }
-    const isManual = reason === 'manual refresh';
     if (this.httpPollRunning && !isManual) {
       this.log.debug('Skipping HTTP status poll (' + reason + '), previous poll still running');
       return;
     }
-    // Manual refresh bypasses the lock; only non-manual polls own/release it.
-    if (!isManual) {
+    // Each poll gets its own token. Only the owner of the current token may
+    // release the lock — prevents stale-recovered or overlapping polls from
+    // clobbering a fresh lock.
+    const token = ++this.httpPollToken;
+    const ownsLock = !this.httpPollRunning;
+    if (ownsLock) {
       this.httpPollRunning = true;
       this.httpPollStartedAt = Date.now();
-    } else if (this.httpPollRunning) {
+    } else {
       this.log.debug('Manual refresh bypassing poll lock');
     }
     try {
@@ -1034,7 +1035,7 @@ class Navimow extends utils.Adapter {
     } catch (error) {
       this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
     } finally {
-      if (!isManual) {
+      if (ownsLock && this.httpPollToken === token) {
         this.httpPollRunning = false;
         this.httpPollStartedAt = 0;
       }
