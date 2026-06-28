@@ -961,21 +961,24 @@ class Navimow extends utils.Adapter {
             continue;
           }
 
-          // Derive battery from capacityRemaining[].rawValue (PERCENTAGE) since
-          // getVehicleStatus does not carry a direct battery field; battery
-          // would otherwise only update via MQTT state pushes which are unreliable.
-          // Only accept entries explicitly marked as PERCENTAGE - other units
-          // (Wh, mAh) would write nonsense into status.battery.
+          // Derive battery from capacityRemaining[].rawValue since getVehicleStatus
+          // does not carry a direct battery field; battery would otherwise only
+          // update via MQTT state pushes which are unreliable.
+          // Prefer entries marked as PERCENTAGE; fall back to the first entry
+          // (Segway's API only returns the battery percentage here in practice).
           if (deviceData.battery == null && Array.isArray(deviceData.capacityRemaining)) {
+            let v = null;
             for (const item of deviceData.capacityRemaining) {
               if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
-                const v = Number(item.rawValue);
-                if (Number.isFinite(v)) {
-                  deviceData.battery = v;
-                  break;
-                }
+                const n = Number(item.rawValue);
+                if (Number.isFinite(n)) { v = n; break; }
               }
             }
+            if (v == null && deviceData.capacityRemaining[0]) {
+              const n = Number(deviceData.capacityRemaining[0].rawValue);
+              if (Number.isFinite(n)) v = n;
+            }
+            if (v != null) deviceData.battery = v;
           }
 
           this.setState(id + '.status.json', JSON.stringify(deviceData), true);
