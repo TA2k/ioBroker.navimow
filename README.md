@@ -19,6 +19,13 @@
 
 ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) REST API and MQTT for real-time updates.
 
+## About this fork
+
+This is a fork of [TA2k/ioBroker.navimow](https://github.com/TA2k/ioBroker.navimow) with the following changes not (yet) present upstream:
+
+- **Security fix:** OAuth tokens, passwords and other credentials are now redacted before being written to the debug/error log (previously full token responses and MQTT credentials were logged in plain text).
+- **Configurable client credentials:** the Navimow `CLIENT_ID`/`CLIENT_SECRET` can be overridden via the `NAVIMOW_CLIENT_ID`/`NAVIMOW_CLIENT_SECRET` environment variables, falling back to the existing public Home Assistant integration values.
+
 ## Features
 
 - OAuth2 login via Navimow account

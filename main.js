@@ -12,9 +12,48 @@ const states = require('./lib/states.json');
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
-const CLIENT_ID = 'homeassistant';
-const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
+// CLIENT_ID/CLIENT_SECRET are the public OAuth client credentials of the Home Assistant
+// integration for this cloud API (not a user secret). Overridable via env for flexibility.
+const CLIENT_ID = process.env.NAVIMOW_CLIENT_ID || 'homeassistant';
+const CLIENT_SECRET = process.env.NAVIMOW_CLIENT_SECRET || '57056e15-722e-42be-bbaa-b0cbfb208a52';
 const REDIRECT_URI = 'http://localhost:1/callback';
+
+// Keys that must never appear in plain text in logs
+const SENSITIVE_KEYS = new Set([
+  'access_token',
+  'refresh_token',
+  'token',
+  'pwdInfo',
+  'password',
+  'mqttPassword',
+  'userName',
+  'secret',
+  'client_secret',
+  'code',
+  'authCode',
+]);
+
+function redact(value) {
+  if (Array.isArray(value)) {
+    return value.map(redact);
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      out[key] = SENSITIVE_KEYS.has(key) ? '***redacted***' : redact(val);
+    }
+    return out;
+  }
+  return value;
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(redact(value));
+  } catch {
+    return '[unstringifiable]';
+  }
+}
 
 
 // Location MQTT watchdog
@@ -200,9 +239,9 @@ class Navimow extends utils.Adapter {
       headers: this.getAuthHeaders(),
     })
       .then((res) => {
-        this.log.debug('MQTT info: ' + JSON.stringify(res.data));
+        this.log.debug('MQTT info: ' + safeStringify(res.data));
         if (!res.data || res.data.code !== 1) {
-          this.log.warn('Failed to get MQTT info: ' + JSON.stringify(res.data));
+          this.log.warn('Failed to get MQTT info: ' + safeStringify(res.data));
           return;
         }
         const mqttInfo = res.data.data ?? {};
@@ -218,7 +257,7 @@ class Navimow extends utils.Adapter {
         const mqttUsername = mqttInfo.userName;
         const mqttPassword = mqttInfo.pwdInfo;
 
-        this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
+        this.log.debug('MQTT info raw: ' + safeStringify(mqttInfo));
 
         let brokerUrl;
         const mqttOpts = {
@@ -360,7 +399,7 @@ class Navimow extends utils.Adapter {
       })
       .catch((error) => {
         this.log.warn('MQTT setup failed: ' + error.message);
-        error.response && this.log.debug(JSON.stringify(error.response.data));
+        error.response && this.log.debug(safeStringify(error.response.data));
       });
   }
 
@@ -747,16 +786,16 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.log.debug(safeStringify(res.data));
         if (res.data && res.data.access_token) {
           return res.data;
         }
-        this.log.error('Token exchange failed: ' + JSON.stringify(res.data));
+        this.log.error('Token exchange failed: ' + safeStringify(res.data));
         return null;
       })
       .catch((error) => {
         this.log.error('Token exchange error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(safeStringify(error.response.data));
         return null;
       });
   }
@@ -775,16 +814,16 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.log.debug(safeStringify(res.data));
         if (res.data && res.data.access_token) {
           return res.data;
         }
-        this.log.warn('Token refresh returned no token: ' + JSON.stringify(res.data));
+        this.log.warn('Token refresh returned no token: ' + safeStringify(res.data));
         return null;
       })
       .catch((error) => {
         this.log.warn('Token refresh failed: ' + error.message);
-        error.response && this.log.debug(JSON.stringify(error.response.data));
+        error.response && this.log.debug(safeStringify(error.response.data));
         return null;
       });
   }
@@ -825,9 +864,9 @@ class Navimow extends utils.Adapter {
       headers: this.getAuthHeaders(),
     })
       .then(async (res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.log.debug(safeStringify(res.data));
         if (res.data && res.data.code !== 1) {
-          this.log.error('getDeviceList failed: ' + (res.data.desc || JSON.stringify(res.data)));
+          this.log.error('getDeviceList failed: ' + (res.data.desc || safeStringify(res.data)));
           return;
         }
         const devices = res.data.data?.payload?.devices || [];
@@ -924,7 +963,7 @@ class Navimow extends utils.Adapter {
       })
       .catch((error) => {
         this.log.error('getDeviceList error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(safeStringify(error.response.data));
       });
   }
 
@@ -946,10 +985,10 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.log.debug(safeStringify(res.data));
         if (!res.data || res.data.code !== 1) {
           this.log.error(
-            'updateDevices failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
+            'updateDevices failed: ' + ((res.data && res.data.desc) || safeStringify(res.data)),
           );
           return;
         }
@@ -1003,7 +1042,7 @@ class Navimow extends utils.Adapter {
           return;
         }
         this.log.error('updateDevices error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(safeStringify(error.response.data));
       });
   }
 
@@ -1074,10 +1113,10 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
+        this.log.debug(safeStringify(res.data));
         if (!res.data || res.data.code !== 1) {
           this.log.error(
-            'Command failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
+            'Command failed: ' + ((res.data && res.data.desc) || safeStringify(res.data)),
           );
           return;
         }
@@ -1101,7 +1140,7 @@ class Navimow extends utils.Adapter {
           return;
         }
         this.log.error('sendCommand error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        error.response && this.log.error(safeStringify(error.response.data));
       });
   }
 
