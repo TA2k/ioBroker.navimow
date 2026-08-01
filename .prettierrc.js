@@ -5,5 +5,6 @@ module.exports = {
     printWidth: 120,
     useTabs: false,
     tabWidth: 2,
-    endOfLine: 'lf',
+    // 'auto' so a CRLF checkout on Windows does not turn every line into a lint error
+    endOfLine: 'auto',
 };

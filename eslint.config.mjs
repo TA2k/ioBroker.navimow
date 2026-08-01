@@ -1,48 +1,23 @@
-import js from '@eslint/js';
+import config from '@iobroker/eslint-config';
 
 export default [
-  js.configs.recommended,
+  ...config,
   {
-    languageOptions: {
-      ecmaVersion: 2020,
-      sourceType: 'commonjs',
-      globals: {
-        require: 'readonly',
-        module: 'readonly',
-        exports: 'readonly',
-        __dirname: 'readonly',
-        __filename: 'readonly',
-        process: 'readonly',
-        console: 'readonly',
-        setTimeout: 'readonly',
-        clearTimeout: 'readonly',
-        setInterval: 'readonly',
-        clearInterval: 'readonly',
-        Buffer: 'readonly',
-        Promise: 'readonly',
-        URL: 'readonly',
-      },
-    },
     rules: {
-      'indent': ['error', 2, { SwitchCase: 1 }],
-      'no-console': 'off',
-      'no-unused-vars': ['error', { ignoreRestSiblings: true, argsIgnorePattern: '^_' }],
-      'no-var': 'error',
-      'no-trailing-spaces': 'error',
-      'prefer-const': 'error',
-      'quotes': ['error', 'single', { avoidEscape: true, allowTemplateLiterals: true }],
-      'semi': ['error', 'always'],
+      // The shared config formats with 4 spaces, this repository uses 2. Reformatting
+      // every file is a separate change, not part of adopting the shared rule set.
+      'prettier/prettier': ['error', { tabWidth: 2 }],
+      // main.js builds log messages with string concatenation throughout. Converting
+      // ~120 call sites to template literals is pure churn and would collide with every
+      // open branch, so it stays off until a dedicated formatting release.
+      'prefer-template': 'off',
+      // This adapter is plain JavaScript type-checked through JSDoc (checkJs), so
+      // `/** @type {x} */ (value)` is a load-bearing cast. The rule considers @type
+      // redundant and its autofix deletes the tag, which breaks `npm run check`.
+      'jsdoc/check-tag-names': 'off',
     },
   },
   {
-    ignores: [
-      'node_modules/',
-      'doku/',
-      '.prettierrc.js',
-      'admin/words.js',
-      'test/',
-      '*.test.js',
-      'eslint.config.mjs',
-    ],
+    ignores: ['node_modules/', 'doku/', '.prettierrc.js', 'admin/words.js', 'test/', '*.test.js', 'eslint.config.mjs'],
   },
 ];
