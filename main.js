@@ -20,6 +20,13 @@ const REDIRECT_URI = 'http://localhost:1/callback';
 // Location MQTT watchdog
 const LOCATION_STALE_MS = 3 * 60 * 1000;
 const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
+
+// MQTT-only mode (interval=0): the broker only pushes the state channel while the
+// mower is moving. Docked and charging it stays silent, so battery and vehicleState
+// keep their last values for hours. Fall back to a single HTTP poll once the state
+// channel has been quiet for this long.
+const STATUS_STALE_MS = 15 * 60 * 1000;
+const STATUS_STALE_CHECK_MS = 60 * 1000;
 const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
 
 // Command mapping: name -> { command, params }
@@ -49,6 +56,8 @@ class Navimow extends utils.Adapter {
     });
     this.session = {};
     this.updateInterval = null;
+    this.statusStaleInterval = null;
+    this.lastStatusUpdate = 0;
     this.refreshTokenTimeout = null;
     this.refreshTimeout = undefined;
     this.mqttClient = null;
@@ -163,7 +172,12 @@ class Navimow extends utils.Adapter {
           );
           this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
         } else {
-          this.log.info('Periodic HTTP status polling disabled (interval=0). Relying on MQTT for updates.');
+          this.log.info(
+            'Periodic HTTP status polling disabled (interval=0). Relying on MQTT, with an HTTP fallback poll after ' +
+              Math.round(STATUS_STALE_MS / 60000) +
+              ' minutes without a status update.',
+          );
+          this.statusStaleInterval = this.setInterval(() => this.pollIfStatusStale(), STATUS_STALE_CHECK_MS);
         }
 
         // Schedule token refresh
@@ -398,6 +412,7 @@ class Navimow extends utils.Adapter {
 
       // state channel: also store raw JSON
       if (channel === 'state') {
+        this.lastStatusUpdate = Date.now();
         this.setState(deviceId + '.status.json', JSON.stringify(data), true);
       }
 
@@ -981,6 +996,7 @@ class Navimow extends utils.Adapter {
             if (v != null) deviceData.battery = v;
           }
 
+          this.lastStatusUpdate = Date.now();
           this.setState(id + '.status.json', JSON.stringify(deviceData), true);
 
           this.json2iob.parse(id + '.status', deviceData, {
@@ -1005,6 +1021,23 @@ class Navimow extends utils.Adapter {
         this.log.error('updateDevices error: ' + error.message);
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
+  }
+
+  /**
+   * MQTT-only fallback: pull the status over HTTP when the MQTT state channel has
+   * gone quiet. Without this, battery and vehicleState freeze while the mower is
+   * docked, because the broker only pushes the state channel during operation.
+   */
+  pollIfStatusStale() {
+    const age = Date.now() - this.lastStatusUpdate;
+    if (age < STATUS_STALE_MS) {
+      return;
+    }
+    this.log.debug('No MQTT status update for ' + Math.round(age / 60000) + ' min, falling back to HTTP poll');
+    // Count the attempt, not just the success. A failing poll otherwise leaves the
+    // timestamp stale and this check would retry every minute instead of every 15.
+    this.lastStatusUpdate = Date.now();
+    this.pollDevices('status stale');
   }
 
   async pollDevices(reason) {
@@ -1159,6 +1192,7 @@ class Navimow extends utils.Adapter {
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
+      this.statusStaleInterval && this.clearInterval(this.statusStaleInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);

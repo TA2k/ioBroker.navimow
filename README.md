@@ -44,6 +44,8 @@ The token is refreshed automatically. A re-login is only needed if the refresh t
 
 The **Update interval** setting defines the periodic HTTP status polling interval in minutes (minimum: 1 minute). MQTT stays active in parallel for real-time updates.
 
+Setting the interval to `0` disables periodic polling and relies on MQTT alone. Because the broker only pushes the `state` channel while the mower is operating, the adapter still performs a single HTTP status poll whenever no MQTT status update has arrived for 15 minutes. Without that fallback, battery and `vehicleState` would keep their last values for hours while the mower is docked and charging.
+
 ## States
 
 For each mower device the following channels are created:
