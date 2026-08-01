@@ -1,0 +1,9 @@
+{
+    "1. Click the login link below and login with your Navimow account<br>2. After login you will be redirected - copy the complete URL from the browser address bar<br><i>The URL contains <b>?code=XXXXX</b></i><br>3. Paste the URL below and save": "1. 单击下面的登录链接并使用您的 Navimow 帐户登录<br>2。登录后，您将被重定向 - 从浏览器地址栏中复制完整的 URL<br><i>URL 包含 <b>?code=XXXXX</b></i><br>3.粘贴下面的 URL 并保存",
+    "Authorization Code": "授权码",
+    "HTTP polling interval (in minutes)": "HTTP 轮询间隔（以分钟为单位）",
+    "Navimow Login": "Navimow 登录",
+    "Open Navimow Login": "打开 Navimow 登录",
+    "Paste the full URL or just the code value": "粘贴完整的 URL 或仅粘贴代码值",
+    "Periodic HTTP status polling interval (0 = disabled, MQTT only). MQTT remains active for real-time updates.": "定期 HTTP 状态轮询间隔（0 = 禁用，仅限 MQTT）。 MQTT 保持活动状态以进行实时更新。"
+}

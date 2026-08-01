@@ -3,9 +3,9 @@
 const utils = require('@iobroker/adapter-core');
 const axios = require('axios');
 const Json2iob = require('json2iob');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 const mqtt = require('mqtt');
-const { URL } = require('url');
+const { URL } = require('node:url');
 const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');

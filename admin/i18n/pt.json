@@ -1,0 +1,9 @@
+{
+    "1. Click the login link below and login with your Navimow account<br>2. After login you will be redirected - copy the complete URL from the browser address bar<br><i>The URL contains <b>?code=XXXXX</b></i><br>3. Paste the URL below and save": "1. Clique no link de login abaixo e faça login com sua conta Navimow<br>2. Após o login você será redirecionado - copie o URL completo da barra de endereço do navegador<br><i>O URL contém <b>?code=XXXXX</b></i><br>3. Cole o URL abaixo e salve",
+    "Authorization Code": "Código de autorização",
+    "HTTP polling interval (in minutes)": "Intervalo de sondagem HTTP (em minutos)",
+    "Navimow Login": "Login do Navimow",
+    "Open Navimow Login": "Abra o login do Navimow",
+    "Paste the full URL or just the code value": "Cole o URL completo ou apenas o valor do código",
+    "Periodic HTTP status polling interval (0 = disabled, MQTT only). MQTT remains active for real-time updates.": "Intervalo periódico de pesquisa de status HTTP (0 = desabilitado, somente MQTT). O MQTT permanece ativo para atualizações em tempo real."
+}

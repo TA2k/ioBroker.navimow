@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 15
+    # Give a released version a week to be pulled if it turns out to be compromised
+    cooldown:
+      default-days: 7
+    ignore:
+      # @types/node has to follow engines.node, not the newest major
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 15
+    cooldown:
+      default-days: 7
