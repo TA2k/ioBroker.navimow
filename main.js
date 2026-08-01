@@ -96,13 +96,12 @@ class Navimow extends utils.Adapter {
     // Step 1: New auth code in config -> exchange for token
     if (this.config.authCode) {
       let authCode = this.config.authCode.trim();
-      this.log.debug('Auth code input: ' + authCode.substring(0, 20) + '...');
       // Extract code from full URL if user pasted the entire redirect URL
       if (authCode.startsWith('http')) {
         try {
           const parsed = new URL(authCode);
           authCode = parsed.searchParams.get('code') || authCode;
-          this.log.debug('Extracted code from URL: ' + authCode.substring(0, 20) + '...');
+          this.log.debug('Extracted authorization code from pasted URL');
         } catch {
           this.log.debug('Auth code is not a valid URL, using as-is');
         }
@@ -147,7 +146,6 @@ class Navimow extends utils.Adapter {
         this.session = tokenObj;
         this.setState('info.connection', true, true);
         this.log.info('Token loaded (expires_in: ' + (tokenObj.expires_in || 'unknown') + 's)');
-        this.log.debug('Access token starts with: ' + tokenObj.access_token.substring(0, 20) + '...');
         await this.getDeviceList();
         this.log.debug('Device array: ' + JSON.stringify(this.deviceArray));
         await this.pollDevices('startup');
@@ -200,8 +198,9 @@ class Navimow extends utils.Adapter {
       headers: this.getAuthHeaders(),
     })
       .then((res) => {
-        this.log.debug('MQTT info: ' + JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
+          // res.data carries the MQTT password (pwdInfo) on success only, so the
+          // failure body is safe to log; success details are logged field by field below.
           this.log.warn('Failed to get MQTT info: ' + JSON.stringify(res.data));
           return;
         }
@@ -218,7 +217,10 @@ class Navimow extends utils.Adapter {
         const mqttUsername = mqttInfo.userName;
         const mqttPassword = mqttInfo.pwdInfo;
 
-        this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
+        this.log.debug(
+          'MQTT info received: host=' + mqttHost + ' url=' + (mqttUrlRaw ? 'yes' : 'no') +
+            ' credentials=' + (mqttUsername && mqttPassword ? 'yes' : 'no'),
+        );
 
         let brokerUrl;
         const mqttOpts = {
@@ -259,9 +261,8 @@ class Navimow extends utils.Adapter {
           brokerUrl = 'mqtt://' + mqttHost + ':1883';
         }
 
+        // brokerUrl carries no credentials; clientId embeds the account user name, so it stays unlogged.
         this.log.info('MQTT connecting to ' + brokerUrl);
-        this.log.debug('MQTT clientId: ' + mqttOpts.clientId);
-        this.log.debug('MQTT username: ' + (mqttUsername || 'none'));
         const mqttClient = mqtt.connect(brokerUrl, mqttOpts);
         this.mqttClient = mqttClient;
 
@@ -747,10 +748,11 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
         if (res.data && res.data.access_token) {
+          this.log.debug('Token exchange succeeded (expires_in: ' + (res.data.expires_in || 'unknown') + 's)');
           return res.data;
         }
+        // No access_token in the body, so nothing secret to leak here.
         this.log.error('Token exchange failed: ' + JSON.stringify(res.data));
         return null;
       })
@@ -775,10 +777,11 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
         if (res.data && res.data.access_token) {
+          this.log.debug('Token refresh succeeded (expires_in: ' + (res.data.expires_in || 'unknown') + 's)');
           return res.data;
         }
+        // No access_token in the body, so nothing secret to leak here.
         this.log.warn('Token refresh returned no token: ' + JSON.stringify(res.data));
         return null;
       })
