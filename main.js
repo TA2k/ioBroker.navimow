@@ -16,7 +16,6 @@ const CLIENT_ID = 'homeassistant';
 const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
 const REDIRECT_URI = 'http://localhost:1/callback';
 
-
 // Location MQTT watchdog
 const LOCATION_STALE_MS = 3 * 60 * 1000;
 const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
@@ -159,7 +158,9 @@ class Navimow extends utils.Adapter {
         if (this.config.interval > 0) {
           const pollMs = this.config.interval * 60 * 1000;
           this.log.info(
-            'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
+            'Periodic HTTP status polling active every ' +
+              this.config.interval +
+              ' minute(s). MQTT remains active for real-time updates.',
           );
           this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
         } else {
@@ -222,7 +223,8 @@ class Navimow extends utils.Adapter {
 
         let brokerUrl;
         const mqttOpts = {
-          clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
+          clientId:
+            'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
           keepalive: 2400,
           reconnectPeriod: 10000,
         };
@@ -321,7 +323,9 @@ class Navimow extends utils.Adapter {
             this.log.debug('MQTT error: ' + err.message);
           }
           if (this.mqttErrorCount === 3) {
-            this.log.info('MQTT repeated errors, increasing reconnect interval to 10 min. HTTP polling is active as fallback.');
+            this.log.info(
+              'MQTT repeated errors, increasing reconnect interval to 10 min. HTTP polling is active as fallback.',
+            );
             mqttClient.options.reconnectPeriod = 600000;
           }
           if ('code' in err) {
@@ -426,7 +430,9 @@ class Navimow extends utils.Adapter {
           if (p && p.postureX != null && p.postureY != null) {
             const x = parseFloat(p.postureX);
             const y = parseFloat(p.postureY);
-            if (isNaN(x) || isNaN(y)) continue;
+            if (isNaN(x) || isNaN(y)) {
+              continue;
+            }
             const last = history[history.length - 1];
             if (!last || last.x !== x || last.y !== y) {
               history.push({ x, y });
@@ -439,11 +445,14 @@ class Navimow extends utils.Adapter {
             this.lastMapRender = now;
             this.renderMap(deviceId);
           } else if (!this.mapRenderTimeout) {
-            this.mapRenderTimeout = this.setTimeout(() => {
-              this.mapRenderTimeout = null;
-              this.lastMapRender = Date.now();
-              this.renderMap(deviceId);
-            }, 1000 - (now - this.lastMapRender));
+            this.mapRenderTimeout = this.setTimeout(
+              () => {
+                this.mapRenderTimeout = null;
+                this.lastMapRender = Date.now();
+                this.renderMap(deviceId);
+              },
+              1000 - (now - this.lastMapRender),
+            );
           }
         }
         if (history.length > 5000) {
@@ -454,7 +463,9 @@ class Navimow extends utils.Adapter {
       // Arrays: use last entry (e.g. location)
       if (Array.isArray(data)) {
         data = data[data.length - 1];
-        if (!data) return;
+        if (!data) {
+          return;
+        }
       }
 
       const folderName = channel === 'state' ? 'status' : channel;
@@ -471,8 +482,9 @@ class Navimow extends utils.Adapter {
 
   /**
    * Map vehicleState to the active remote command
-   * @param {string} deviceId
-   * @param {string} vehicleState
+   *
+   * @param {string} deviceId device the buttons belong to
+   * @param {string} vehicleState reported state of the mower
    */
   updateRemoteStates(deviceId, vehicleState) {
     const stateToRemote = {
@@ -497,18 +509,31 @@ class Navimow extends utils.Adapter {
 
   renderMap(deviceId) {
     const points = this.locationHistory[deviceId]?.slice();
-    if (!points || points.length < 2) return;
+    if (!points || points.length < 2) {
+      return;
+    }
     this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
     const size = 800;
     const padding = 50;
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
     for (const p of points) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
+      if (p.x < minX) {
+        minX = p.x;
+      }
+      if (p.x > maxX) {
+        maxX = p.x;
+      }
+      if (p.y < minY) {
+        minY = p.y;
+      }
+      if (p.y > maxY) {
+        maxY = p.y;
+      }
     }
 
     const rangeX = maxX - minX || 1;
@@ -581,22 +606,26 @@ class Navimow extends utils.Adapter {
       /** @type {any} */ (client).suppressCredentialRefresh = true;
     }
 
-    return /** @type {Promise<void>} */ (new Promise((resolve) => {
-      let resolved = false;
-      let timeoutHandle = null;
-      const finish = () => {
-        if (resolved) return;
-        resolved = true;
-        if (timeoutHandle) {
-          this.clearTimeout(timeoutHandle);
-        }
-        this.log.info('MQTT disconnected');
-        resolve();
-      };
-      client.once('close', finish);
-      client.end(true, finish);
-      timeoutHandle = this.setTimeout(finish, 2000);
-    }));
+    return /** @type {Promise<void>} */ (
+      new Promise((resolve) => {
+        let resolved = false;
+        let timeoutHandle = null;
+        const finish = () => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          if (timeoutHandle) {
+            this.clearTimeout(timeoutHandle);
+          }
+          this.log.info('MQTT disconnected');
+          resolve();
+        };
+        client.once('close', finish);
+        client.end(true, finish);
+        timeoutHandle = this.setTimeout(finish, 2000);
+      })
+    );
   }
 
   isLocationActiveState(vehicleState) {
@@ -641,13 +670,25 @@ class Navimow extends utils.Adapter {
     const lastRecovery = this.lastLocationRecovery[deviceId] || 0;
     if (now - lastRecovery < LOCATION_RECOVERY_COOLDOWN_MS) {
       this.log.debug(
-        'MQTT location stream stale: device=' + deviceId + ' vehicleState=' + vehicleState + ' age=' + ageSeconds + 's action=cooldown',
+        'MQTT location stream stale: device=' +
+          deviceId +
+          ' vehicleState=' +
+          vehicleState +
+          ' age=' +
+          ageSeconds +
+          's action=cooldown',
       );
       return;
     }
 
     this.log.warn(
-      'MQTT location stream stale: device=' + deviceId + ' vehicleState=' + vehicleState + ' age=' + ageSeconds + 's action=reconnect',
+      'MQTT location stream stale: device=' +
+        deviceId +
+        ' vehicleState=' +
+        vehicleState +
+        ' age=' +
+        ageSeconds +
+        's action=reconnect',
     );
     this.recoverMqttLocationStream(deviceId);
   }
@@ -675,7 +716,9 @@ class Navimow extends utils.Adapter {
   }
 
   async refreshMqttCredentials() {
-    if (this.mqttRefreshing) return;
+    if (this.mqttRefreshing) {
+      return;
+    }
     this.mqttRefreshing = true;
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
@@ -882,7 +925,13 @@ class Navimow extends utils.Adapter {
           });
           await this.setObjectNotExistsAsync(id + '.diagnostics.locationMqttStale', {
             type: 'state',
-            common: { name: 'MQTT location stream stale', write: false, read: true, type: 'boolean', role: 'indicator' },
+            common: {
+              name: 'MQTT location stream stale',
+              write: false,
+              read: true,
+              type: 'boolean',
+              role: 'indicator',
+            },
             native: {},
           });
           await this.setObjectNotExistsAsync(id + '.diagnostics.lastMqttRecovery', {
@@ -892,7 +941,14 @@ class Navimow extends utils.Adapter {
           });
           await this.setObjectNotExistsAsync(id + '.diagnostics.lastLocationAgeSeconds', {
             type: 'state',
-            common: { name: 'Last MQTT location age', write: false, read: true, type: 'number', role: 'value', unit: 's' },
+            common: {
+              name: 'Last MQTT location age',
+              write: false,
+              read: true,
+              type: 'number',
+              role: 'value',
+              unit: 's',
+            },
             native: {},
           });
 
@@ -948,9 +1004,7 @@ class Navimow extends utils.Adapter {
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
-          this.log.error(
-            'updateDevices failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
-          );
+          this.log.error('updateDevices failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)));
           return;
         }
         const devices = res.data.data?.payload?.devices || [];
@@ -971,14 +1025,21 @@ class Navimow extends utils.Adapter {
             for (const item of deviceData.capacityRemaining) {
               if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
                 const n = Number(item.rawValue);
-                if (Number.isFinite(n)) { v = n; break; }
+                if (Number.isFinite(n)) {
+                  v = n;
+                  break;
+                }
               }
             }
             if (v == null && deviceData.capacityRemaining[0]) {
               const n = Number(deviceData.capacityRemaining[0].rawValue);
-              if (Number.isFinite(n)) v = n;
+              if (Number.isFinite(n)) {
+                v = n;
+              }
             }
-            if (v != null) deviceData.battery = v;
+            if (v != null) {
+              deviceData.battery = v;
+            }
           }
 
           this.setState(id + '.status.json', JSON.stringify(deviceData), true);
@@ -1033,7 +1094,9 @@ class Navimow extends utils.Adapter {
       this.log.debug('Manual refresh bypassing poll lock');
     }
     try {
-      this.log.debug(reason === 'interval' ? 'Running periodic HTTP status poll' : 'Running HTTP status poll (' + reason + ')');
+      this.log.debug(
+        reason === 'interval' ? 'Running periodic HTTP status poll' : 'Running HTTP status poll (' + reason + ')',
+      );
       await this.updateDevices();
     } catch (error) {
       this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
@@ -1076,9 +1139,7 @@ class Navimow extends utils.Adapter {
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
-          this.log.error(
-            'Command failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
-          );
+          this.log.error('Command failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)));
           return;
         }
         const results = res.data.data?.payload?.commands || [];
