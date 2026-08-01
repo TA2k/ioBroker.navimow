@@ -125,7 +125,7 @@ The `diagnostics` channel contains read-only values for the MQTT location watchd
 | `diagnostics.lastMqttRecovery`       | Timestamp of the last controlled MQTT recovery   |
 | `diagnostics.lastLocationAgeSeconds` | Age of the last MQTT location message in seconds |
 
-If HTTP polling reports an active mowing state but no MQTT `location` message is received for at least three minutes, the adapter marks the location stream as stale and reconnects MQTT. Recoveries are rate-limited to at most once every five minutes per device. Battery, status and `vehicleState` continue to be updated by periodic HTTP polling independently from this watchdog.
+If an active mowing state is reported but no MQTT `location` message is received for at least three minutes, the adapter marks the location stream as stale and reconnects MQTT. Recoveries are rate-limited to at most once every five minutes per device. The check normally runs inside the HTTP status poll; with the polling interval set to `0` (MQTT only) it runs on its own one minute timer using the last vehicle state received via MQTT. Battery, status and `vehicleState` continue to be updated by periodic HTTP polling independently from this watchdog.
 
 ### Mowing Map
 

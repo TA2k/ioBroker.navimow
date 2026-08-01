@@ -18,6 +18,8 @@ const REDIRECT_URI = 'http://localhost:1/callback';
 
 
 // Location MQTT watchdog
+// With interval=0 there is no HTTP poll to drive the watchdog, so it runs on its own timer
+const LOCATION_WATCHDOG_INTERVAL_MS = 60 * 1000;
 const LOCATION_STALE_MS = 3 * 60 * 1000;
 const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
 const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
@@ -49,6 +51,7 @@ class Navimow extends utils.Adapter {
     });
     this.session = {};
     this.updateInterval = null;
+    this.watchdogInterval = null;
     this.refreshTokenTimeout = null;
     this.refreshTimeout = undefined;
     this.mqttClient = null;
@@ -164,6 +167,12 @@ class Navimow extends utils.Adapter {
           this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
         } else {
           this.log.info('Periodic HTTP status polling disabled (interval=0). Relying on MQTT for updates.');
+          // The watchdog normally runs inside the HTTP poll. Without polling it needs its
+          // own timer, otherwise a stalled location stream is never noticed in MQTT-only mode.
+          this.watchdogInterval = this.setInterval(
+            () => this.runLocationWatchdog(),
+            LOCATION_WATCHDOG_INTERVAL_MS,
+          );
         }
 
         // Schedule token refresh
@@ -597,6 +606,19 @@ class Navimow extends utils.Adapter {
       client.end(true, finish);
       timeoutHandle = this.setTimeout(finish, 2000);
     }));
+  }
+
+  /**
+   * Check every known device against the last vehicle state seen via MQTT.
+   * Used only in MQTT-only mode (interval=0).
+   */
+  runLocationWatchdog() {
+    for (const deviceId of this.deviceArray) {
+      const vehicleState = this.lastVehicleState[deviceId];
+      if (vehicleState) {
+        this.checkLocationWatchdog(deviceId, vehicleState);
+      }
+    }
   }
 
   isLocationActiveState(vehicleState) {
@@ -1159,6 +1181,7 @@ class Navimow extends utils.Adapter {
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
+      this.watchdogInterval && this.clearInterval(this.watchdogInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
