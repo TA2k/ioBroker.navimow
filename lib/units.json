@@ -1,0 +1,7 @@
+{
+  "battery": "%",
+  "mowingPercentage": "%",
+  "postureX": "m",
+  "postureY": "m",
+  "postureTheta": "rad"
+}

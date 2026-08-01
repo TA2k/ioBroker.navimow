@@ -48,6 +48,7 @@
       "type": "number",
       "newLine": true,
       "min": 0,
+      "max": 1440,
       "xs": 12, "sm": 2, "md": 2, "lg": 2, "xl": 2,
       "label": {
         "en": "HTTP polling interval (in minutes)",

@@ -9,6 +9,8 @@ const { URL } = require('url');
 const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
+const units = require('./lib/units.json');
+const { normalizeInterval, deriveBattery, activeRemoteCommand } = require('./lib/normalize');
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
@@ -16,6 +18,11 @@ const CLIENT_ID = 'homeassistant';
 const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
 const REDIRECT_URI = 'http://localhost:1/callback';
 
+
+// Backoff for retried device discovery and token refresh
+const RETRY_DELAYS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
+// Consecutive failed API calls before info.connection is reported as false
+const CONNECTION_FAILURE_LIMIT = 3;
 
 // Location MQTT watchdog
 const LOCATION_STALE_MS = 3 * 60 * 1000;
@@ -40,7 +47,9 @@ class Navimow extends utils.Adapter {
     this.on('ready', this.onReady.bind(this));
     this.on('stateChange', this.onStateChange.bind(this));
     this.on('unload', this.onUnload.bind(this));
+    // Object ids are sanitized, the API and MQTT topics need the raw ids.
     this.deviceArray = [];
+    this.rawDeviceId = {};
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({
       baseURL: API_BASE_URL,
@@ -68,19 +77,22 @@ class Navimow extends utils.Adapter {
     this.httpPollRunning = false;
     this.httpPollStartedAt = 0;
     this.httpPollToken = 0;
+    this.discoveryFailures = 0;
+    this.discoveryTimeout = null;
+    this.tokenRefreshFailures = 0;
+    this.apiFailures = 0;
   }
 
   async onReady() {
-    this.setState('info.connection', false, true);
-    const configuredInterval = Number(this.config.interval);
-    if (!Number.isFinite(configuredInterval) || configuredInterval < 0) {
-      this.log.info('Invalid interval, defaulting to 5 minutes');
-      this.config.interval = 5;
-    } else {
-      this.config.interval = configuredInterval;
+    await this.setStateAsync('info.connection', false, true);
+    const interval = normalizeInterval(this.config.interval);
+    if (interval !== Number(this.config.interval)) {
+      this.log.info('Polling interval ' + this.config.interval + ' adjusted to ' + interval + ' minute(s)');
     }
+    this.config.interval = interval;
 
-    this.subscribeStates('*');
+    // Only remote buttons are processed, everything else is written by the adapter itself.
+    this.subscribeStates('*.remote.*');
 
     await this.setObjectNotExistsAsync('auth', {
       type: 'channel',
@@ -112,7 +124,7 @@ class Navimow extends utils.Adapter {
       if (tokenData) {
         await this.storeToken(tokenData);
         this.log.info('Token obtained. Clearing auth code from config.');
-        this.extendForeignObject('system.adapter.' + this.namespace, {
+        await this.extendForeignObjectAsync('system.adapter.' + this.namespace, {
           native: { authCode: '' },
         });
       } else {
@@ -145,7 +157,6 @@ class Navimow extends utils.Adapter {
 
       if (tokenObj.access_token) {
         this.session = tokenObj;
-        this.setState('info.connection', true, true);
         this.log.info('Token loaded (expires_in: ' + (tokenObj.expires_in || 'unknown') + 's)');
         this.log.debug('Access token starts with: ' + tokenObj.access_token.substring(0, 20) + '...');
         await this.getDeviceList();
@@ -154,6 +165,13 @@ class Navimow extends utils.Adapter {
 
         // Connect MQTT for real-time updates
         await this.connectMqtt();
+
+        // Discovery failing at startup (ioBroker starting before the network is up)
+        // used to leave the adapter permanently idle: no devices means no MQTT and
+        // no status poll, and nothing ever retried.
+        if (this.deviceArray.length === 0) {
+          this.scheduleDiscoveryRetry();
+        }
 
         // Periodic HTTP polling alongside MQTT real-time updates (0 = disabled)
         if (this.config.interval > 0) {
@@ -280,12 +298,13 @@ class Navimow extends utils.Adapter {
           mqttClient.options.reconnectPeriod = 10000;
           // Subscribe to device topics
           for (const deviceId of this.deviceArray) {
+            const rawId = this.rawDeviceId[deviceId] || deviceId;
             const topics = [
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/state',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/event',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/attributes',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/location',
-              '/downlink/vehicle/' + deviceId + '/#',
+              '/downlink/vehicle/' + rawId + '/realtimeDate/state',
+              '/downlink/vehicle/' + rawId + '/realtimeDate/event',
+              '/downlink/vehicle/' + rawId + '/realtimeDate/attributes',
+              '/downlink/vehicle/' + rawId + '/realtimeDate/location',
+              '/downlink/vehicle/' + rawId + '/#',
             ];
             for (const topic of topics) {
               mqttClient.subscribe(topic, (err) => {
@@ -372,7 +391,7 @@ class Navimow extends utils.Adapter {
         this.log.debug('MQTT unknown topic: ' + topic);
         return;
       }
-      const deviceId = parts[2];
+      const deviceId = this.sanitizeId(parts[2]);
       const channel = parts[parts.length - 1];
 
       if (!this.deviceArray.includes(deviceId)) {
@@ -399,6 +418,11 @@ class Navimow extends utils.Adapter {
       // state channel: also store raw JSON
       if (channel === 'state') {
         this.setState(deviceId + '.status.json', JSON.stringify(data), true);
+        const latest = Array.isArray(data) ? data[data.length - 1] : data;
+        const pushedState = latest && (latest.vehicleState ?? latest.state ?? latest.status);
+        if (pushedState != null) {
+          this.updateRemoteStates(deviceId, String(pushedState));
+        }
       }
 
       // location channel: collect points and render map
@@ -463,6 +487,7 @@ class Navimow extends utils.Adapter {
         channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
         descriptions,
         states,
+        units,
       });
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
@@ -475,21 +500,12 @@ class Navimow extends utils.Adapter {
    * @param {string} vehicleState
    */
   updateRemoteStates(deviceId, vehicleState) {
-    const stateToRemote = {
-      isRunning: 'start',
-      mowing: 'start',
-      isPaused: 'pause',
-      paused: 'pause',
-      isDocking: 'dock',
-      returning: 'dock',
-      isDocked: 'dock',
-      docked: 'dock',
-      charging: 'dock',
-      isIdle: 'stop',
-      isIdel: 'stop',
-      idle: 'stop',
-    };
-    const activeCmd = stateToRemote[vehicleState] || null;
+    const prevState = this.lastVehicleState[deviceId];
+    if (vehicleState !== prevState) {
+      this.lastVehicleState[deviceId] = vehicleState;
+      this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${vehicleState}"`);
+    }
+    const activeCmd = activeRemoteCommand(vehicleState);
     for (const cmd of Object.keys(COMMAND_MAP)) {
       this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
     }
@@ -796,6 +812,7 @@ class Navimow extends utils.Adapter {
     }
     const tokenData = await this.refreshToken(this.session.refresh_token);
     if (tokenData) {
+      this.tokenRefreshFailures = 0;
       await this.storeToken(tokenData);
       this.log.info('Token refreshed successfully');
       // Reconnect MQTT with new token
@@ -811,8 +828,20 @@ class Navimow extends utils.Adapter {
         }
       }
     } else {
-      this.log.error('Token refresh failed. Please re-login via settings.');
-      this.setState('info.connection', false, true);
+      // A failed refresh used to leave the adapter offline until a manual restart,
+      // because nothing rescheduled the refresh.
+      const delayMs = RETRY_DELAYS_MS[Math.min(this.tokenRefreshFailures, RETRY_DELAYS_MS.length - 1)];
+      this.tokenRefreshFailures++;
+      this.log.error(
+        'Token refresh failed, retrying in ' +
+          Math.round(delayMs / 60000) +
+          ' min. Re-login via settings if this keeps failing.',
+      );
+      await this.setStateChangedAsync('info.connection', false, true);
+      this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
+      this.refreshTokenTimeout = this.setTimeout(() => {
+        this.handleTokenRefresh();
+      }, delayMs);
     }
   }
 
@@ -828,21 +857,27 @@ class Navimow extends utils.Adapter {
         this.log.debug(JSON.stringify(res.data));
         if (res.data && res.data.code !== 1) {
           this.log.error('getDeviceList failed: ' + (res.data.desc || JSON.stringify(res.data)));
+          await this.reportApiFailure();
           return;
         }
         const devices = res.data.data?.payload?.devices || [];
         if (devices.length === 0) {
           this.log.warn('No devices found');
+          await this.reportApiSuccess();
           return;
         }
 
         this.deviceArray = [];
+        this.rawDeviceId = {};
         for (const device of devices) {
-          const id = device.id;
-          if (!id) {
+          const rawId = device.id;
+          if (!rawId) {
             continue;
           }
+          // The API id is untrusted input and ends up in object ids.
+          const id = this.sanitizeId(rawId);
           this.deviceArray.push(id);
+          this.rawDeviceId[id] = rawId;
           const name = device.name || id;
 
           await this.setObjectNotExistsAsync(id, {
@@ -918,14 +953,62 @@ class Navimow extends utils.Adapter {
               native: {},
             });
           }
-          this.json2iob.parse(id + '.general', device, { descriptions, states });
+          await this.json2iob.parse(id + '.general', device, { descriptions, states, units });
         }
         this.log.info('Found ' + devices.length + ' device(s)');
+        this.discoveryFailures = 0;
+        await this.reportApiSuccess();
       })
-      .catch((error) => {
+      .catch(async (error) => {
         this.log.error('getDeviceList error: ' + error.message);
         error.response && this.log.error(JSON.stringify(error.response.data));
+        await this.reportApiFailure();
       });
+  }
+
+  /**
+   * Replace characters that are not allowed in ioBroker object ids.
+   *
+   * @param {any} id raw id as delivered by the API
+   * @returns {string} id usable as object id
+   */
+  sanitizeId(id) {
+    return String(id).replace(this.FORBIDDEN_CHARS, '_');
+  }
+
+  /**
+   * Retry device discovery with a bounded backoff.
+   */
+  scheduleDiscoveryRetry() {
+    if (this.discoveryTimeout) {
+      this.clearTimeout(this.discoveryTimeout);
+    }
+    const delayMs = RETRY_DELAYS_MS[Math.min(this.discoveryFailures, RETRY_DELAYS_MS.length - 1)];
+    this.discoveryFailures++;
+    this.log.info('No devices known, retrying discovery in ' + Math.round(delayMs / 1000) + 's');
+    this.discoveryTimeout = this.setTimeout(() => {
+      this.discoveryTimeout = null;
+      this.pollDevices('discovery retry');
+    }, delayMs);
+  }
+
+  /**
+   * info.connection reflects verified communication with the cloud, not just a stored token.
+   */
+  async reportApiSuccess() {
+    this.apiFailures = 0;
+    await this.setStateChangedAsync('info.connection', true, true);
+  }
+
+  /**
+   * A single failed request can be a hiccup, so only report a broken connection
+   * after CONNECTION_FAILURE_LIMIT consecutive failures.
+   */
+  async reportApiFailure() {
+    this.apiFailures++;
+    if (this.apiFailures >= CONNECTION_FAILURE_LIMIT) {
+      await this.setStateChangedAsync('info.connection', false, true);
+    }
   }
 
   updateDevices() {
@@ -942,68 +1025,64 @@ class Navimow extends utils.Adapter {
       url: '/openapi/smarthome/getVehicleStatus',
       headers: this.getAuthHeaders(),
       data: {
-        devices: this.deviceArray.map((id) => ({ id: id })),
+        devices: this.deviceArray.map((id) => ({ id: this.rawDeviceId[id] || id })),
       },
     })
-      .then((res) => {
+      .then(async (res) => {
         this.log.debug(JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
           this.log.error(
             'updateDevices failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
           );
+          await this.reportApiFailure();
           return;
         }
         const devices = res.data.data?.payload?.devices || [];
 
         for (const deviceData of devices) {
-          const id = deviceData.id || deviceData.device_id;
+          const id = this.sanitizeId(deviceData.id || deviceData.device_id || '');
           if (!id || !this.deviceArray.includes(id)) {
             continue;
           }
 
-          // Derive battery from capacityRemaining[].rawValue since getVehicleStatus
-          // does not carry a direct battery field; battery would otherwise only
-          // update via MQTT state pushes which are unreliable.
-          // Prefer entries marked as PERCENTAGE; fall back to the first entry
-          // (Segway's API only returns the battery percentage here in practice).
-          if (deviceData.battery == null && Array.isArray(deviceData.capacityRemaining)) {
-            let v = null;
-            for (const item of deviceData.capacityRemaining) {
-              if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
-                const n = Number(item.rawValue);
-                if (Number.isFinite(n)) { v = n; break; }
-              }
-            }
-            if (v == null && deviceData.capacityRemaining[0]) {
-              const n = Number(deviceData.capacityRemaining[0].rawValue);
-              if (Number.isFinite(n)) v = n;
-            }
-            if (v != null) deviceData.battery = v;
+          const battery = deriveBattery(deviceData);
+          if (battery != null) {
+            deviceData.battery = battery;
           }
 
-          this.setState(id + '.status.json', JSON.stringify(deviceData), true);
+          await this.setStateAsync(id + '.status.json', JSON.stringify(deviceData), true);
 
-          this.json2iob.parse(id + '.status', deviceData, {
+          await this.json2iob.parse(id + '.status', deviceData, {
             forceIndex: true,
             channelName: 'Status',
             descriptions,
             states,
+            units,
           });
 
+          // The remote buttons used to follow status.vehicleState/state/status through
+          // the ack branch of onStateChange; keep all three sources now that they are
+          // updated where the status is written.
+          const reportedState = deviceData.vehicleState ?? deviceData.state ?? deviceData.status;
+          if (reportedState != null) {
+            this.updateRemoteStates(id, String(reportedState));
+          }
           if (deviceData.vehicleState != null) {
             this.checkLocationWatchdog(id, deviceData.vehicleState);
           }
         }
+        await this.reportApiSuccess();
       })
-      .catch((error) => {
+      .catch(async (error) => {
         if (error.response && error.response.status === 401) {
           this.log.warn('Token expired (401). Trying refresh...');
-          this.setState('info.connection', false, true);
-          this.handleTokenRefresh();
+          await this.reportApiFailure();
+          await this.handleTokenRefresh();
           return;
         }
         this.log.error('updateDevices error: ' + error.message);
         error.response && this.log.error(JSON.stringify(error.response.data));
+        await this.reportApiFailure();
       });
   }
 
@@ -1034,6 +1113,18 @@ class Navimow extends utils.Adapter {
     }
     try {
       this.log.debug(reason === 'interval' ? 'Running periodic HTTP status poll' : 'Running HTTP status poll (' + reason + ')');
+      // Without known devices there is nothing to poll and no MQTT connection,
+      // so every poll doubles as a discovery retry.
+      if (this.deviceArray.length === 0) {
+        await this.getDeviceList();
+        if (this.deviceArray.length === 0) {
+          this.scheduleDiscoveryRetry();
+          return;
+        }
+        if (!this.mqttClient) {
+          await this.connectMqtt();
+        }
+      }
       await this.updateDevices();
     } catch (error) {
       this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
@@ -1067,7 +1158,7 @@ class Navimow extends utils.Adapter {
       data: {
         commands: [
           {
-            devices: [{ id: deviceId }],
+            devices: [{ id: this.rawDeviceId[deviceId] || deviceId }],
             execution: execution,
           },
         ],
@@ -1093,11 +1184,11 @@ class Navimow extends utils.Adapter {
           this.pollDevices('post-command');
         }, 5 * 1000);
       })
-      .catch((error) => {
+      .catch(async (error) => {
         if (error.response && error.response.status === 401) {
           this.log.warn('Token expired (401). Trying refresh...');
-          this.setState('info.connection', false, true);
-          this.handleTokenRefresh();
+          await this.reportApiFailure();
+          await this.handleTokenRefresh();
           return;
         }
         this.log.error('sendCommand error: ' + error.message);
@@ -1108,7 +1199,9 @@ class Navimow extends utils.Adapter {
   // ---- State Changes ----
 
   onStateChange(id, state) {
-    if (!state) {
+    // Only remote buttons are subscribed, and only user writes (ack:false) are commands.
+    // The remote buttons the adapter mirrors back are written with ack:true.
+    if (!state || state.ack) {
       return;
     }
     const parts = id.split('.');
@@ -1116,25 +1209,6 @@ class Navimow extends utils.Adapter {
     const channel = parts[3];
     const command = parts[4];
 
-    // ack:true = device confirmed value -> reset remote buttons on state change
-    if (state.ack) {
-      if (channel === 'status' && (command === 'vehicleState' || command === 'state' || command === 'status')) {
-        const newState = String(state.val);
-        this.updateRemoteStates(deviceId, newState);
-      }
-      // Only track vehicleState for map history reset to avoid cross-field false transitions
-      if (channel === 'status' && command === 'vehicleState') {
-        const newState = String(state.val);
-        const prevState = this.lastVehicleState[deviceId];
-        this.lastVehicleState[deviceId] = newState;
-        if (newState !== prevState) {
-          this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
-        }
-      }
-      return;
-    }
-
-    // ack:false = user action -> handle remote commands
     if (channel !== 'remote') {
       return;
     }
@@ -1161,6 +1235,7 @@ class Navimow extends utils.Adapter {
       this.updateInterval && clearInterval(this.updateInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
+      this.discoveryTimeout && this.clearTimeout(this.discoveryTimeout);
       this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
       callback();
     } catch {
