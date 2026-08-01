@@ -125,7 +125,9 @@
     ]
   },
   "encryptedNative": [],
-  "protectedNative": [],
+  "protectedNative": [
+    "authCode"
+  ],
   "native": {
     "authCode": "",
     "interval": 5

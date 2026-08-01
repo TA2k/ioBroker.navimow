@@ -9,6 +9,11 @@ const { URL } = require('url');
 const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
+const { parseSession, mapFileName, mapUrl } = require('./lib/session');
+
+// Tokens live in the adapter file storage, not in a state: states are visible in the
+// object browser and end up in every object dump a user attaches to an issue.
+const SESSION_FILE = 'session.json';
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
@@ -82,14 +87,10 @@ class Navimow extends utils.Adapter {
 
     this.subscribeStates('*');
 
-    await this.setObjectNotExistsAsync('auth', {
-      type: 'channel',
-      common: { name: 'Authentication' },
-      native: {},
-    });
-    await this.setObjectNotExistsAsync('auth.token', {
-      type: 'state',
-      common: { name: 'Token Data', type: 'string', role: 'json', read: true, write: false },
+    // Container object for the adapter file storage (session and rendered maps)
+    await this.setForeignObjectNotExistsAsync(this.namespace, {
+      type: 'meta',
+      common: { name: 'navimow files', type: 'meta.user' },
       native: {},
     });
 
@@ -122,15 +123,9 @@ class Navimow extends utils.Adapter {
 
     // Step 2: Restore stored token and try refresh
     this.log.debug('Loading stored token...');
-    const tokenState = await this.getStateAsync('auth.token');
-    if (tokenState && tokenState.val) {
-      let tokenObj;
-      try {
-        tokenObj = JSON.parse(/** @type {string} */ (tokenState.val));
-      } catch {
-        tokenObj = { access_token: tokenState.val };
-      }
-
+    const storedSession = (await this.loadSession()) || (await this.migrateTokenState());
+    if (storedSession) {
+      let tokenObj = storedSession;
       if (tokenObj.refresh_token) {
         this.log.info('Refresh token found, trying to refresh...');
         const refreshed = await this.refreshToken(tokenObj.refresh_token);
@@ -565,8 +560,11 @@ class Navimow extends utils.Adapter {
     ctx.arc(padding + (last.x - minX) * scaleX, padding + (maxY - last.y) * scaleY, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
-    this.setState(deviceId + '.map', base64, true);
+    // The PNG goes into the adapter file storage; a ~60 kB data URI written through the
+    // states database (and every history adapter) once per second was expensive.
+    this.writeFileAsync(this.namespace, mapFileName(deviceId), canvas.toBuffer('image/png'))
+      .then(() => this.setState(deviceId + '.map', mapUrl(this.namespace, deviceId), true))
+      .catch((e) => this.log.warn('Writing the map file failed: ' + e.message));
   }
 
   disconnectMqtt(suppressCredentialRefresh = false) {
@@ -720,8 +718,52 @@ class Navimow extends utils.Adapter {
 
   async storeToken(tokenData) {
     this.session = tokenData;
-    await this.setStateAsync('auth.token', { val: JSON.stringify(tokenData), ack: true });
+    await this.writeFileAsync(this.namespace, SESSION_FILE, JSON.stringify(tokenData));
     this.log.info('Token stored');
+  }
+
+  /**
+   * Read the stored session from the adapter file storage.
+   *
+   * @returns {Promise<Record<string, any> | null>} session or null if there is none
+   */
+  async loadSession() {
+    try {
+      const res = await this.readFileAsync(this.namespace, SESSION_FILE);
+      return parseSession(res && typeof res === 'object' && 'file' in res ? res.file : res);
+    } catch {
+      // No session file yet
+      return null;
+    }
+  }
+
+  /**
+   * One time migration: older versions kept the tokens in the state auth.token,
+   * where they were visible in the object browser and in every object dump.
+   *
+   * @returns {Promise<Record<string, any> | null>} migrated session or null
+   */
+  async migrateTokenState() {
+    let session;
+    try {
+      const tokenState = await this.getStateAsync('auth.token');
+      session = parseSession(tokenState && tokenState.val);
+      if (session) {
+        await this.writeFileAsync(this.namespace, SESSION_FILE, JSON.stringify(session));
+        this.log.info('Token moved from the state auth.token into the adapter file storage');
+      }
+    } catch (e) {
+      this.log.warn('Token migration failed: ' + e.message);
+      return null;
+    }
+    for (const id of ['auth.token', 'auth']) {
+      try {
+        await this.delObjectAsync(id);
+      } catch {
+        // Object does not exist (fresh installation)
+      }
+    }
+    return session ?? null;
   }
 
   getAuthHeaders() {
@@ -867,8 +909,13 @@ class Navimow extends utils.Adapter {
           });
           await this.setObjectNotExistsAsync(id + '.map', {
             type: 'state',
-            common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
+            common: { name: 'Mowing map (URL)', write: false, read: true, type: 'string', role: 'text.url' },
             native: {},
+          });
+          // Installations created before the map moved into the file storage still
+          // describe the state as a base64 image
+          await this.extendObjectAsync(id + '.map', {
+            common: { name: 'Mowing map (URL)', role: 'text.url' },
           });
           await this.setObjectNotExistsAsync(id + '.diagnostics', {
             type: 'channel',

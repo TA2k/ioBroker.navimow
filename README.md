@@ -42,6 +42,8 @@ Periodic HTTP polling refreshes general status values (for example battery, stat
 
 The token is refreshed automatically. A re-login is only needed if the refresh token expires.
 
+Access and refresh token are stored in the adapter's own file storage (`session.json`), not in a state. Installations coming from version 1.0.2 or older migrate the content of `auth.token` automatically on the first start; the state and its channel are removed afterwards.
+
 The **Update interval** setting defines the periodic HTTP status polling interval in minutes (minimum: 1 minute). MQTT stays active in parallel for real-time updates.
 
 ## States
@@ -129,7 +131,9 @@ If HTTP polling reports an active mowing state but no MQTT `location` message is
 
 ### Mowing Map
 
-The adapter renders a live mowing map as a PNG image (base64 data URI) in the state `{deviceId}.map`. The map is automatically updated during mowing and cleared when a new mowing session starts.
+The adapter renders a live mowing map as a PNG file into its own file storage and puts the URL of that file into the state `{deviceId}.map`, for example `/files/navimow.0/map/DEVICE_ID.png`. The map is automatically updated during mowing and cleared when a new mowing session starts.
+
+Image widgets in VIS can use the state value directly as image source. Scripts that read the state expecting a `data:image/png;base64,...` value (the format used up to version 1.0.2) have to be adjusted.
 
 #### VIS Position Script
 
