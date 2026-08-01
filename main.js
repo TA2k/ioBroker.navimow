@@ -9,6 +9,7 @@ const { URL } = require('url');
 const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
+const { parseTopic, hasMowingReset, appendLocationPoints } = require('./lib/mqttParse');
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
@@ -16,6 +17,12 @@ const CLIENT_ID = 'homeassistant';
 const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
 const REDIRECT_URI = 'http://localhost:1/callback';
 
+
+// MQTT keepalive in seconds. mqtt.js only detects a dead socket through its keepalive
+// pings, so this doubles as the upper bound for noticing a half-open connection.
+const MQTT_KEEPALIVE_S = 60;
+const MAP_POINT_LIMIT = 5000;
+const MAP_RENDER_MIN_INTERVAL_MS = 1000;
 
 // Location MQTT watchdog
 const LOCATION_STALE_MS = 3 * 60 * 1000;
@@ -63,8 +70,11 @@ class Navimow extends utils.Adapter {
     this.locationMqttStale = {};
     this.locationHistory = {};
     this.lastVehicleState = {};
-    this.lastMapRender = 0;
-    this.mapRenderTimeout = null;
+    // Map rendering is throttled per device, otherwise a second mower silently
+    // loses its scheduled render to the first one.
+    this.lastMapRender = {};
+    this.mapRenderTimeout = {};
+    this.unloaded = false;
     this.httpPollRunning = false;
     this.httpPollStartedAt = 0;
     this.httpPollToken = 0;
@@ -161,7 +171,7 @@ class Navimow extends utils.Adapter {
           this.log.info(
             'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
           );
-          this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
+          this.updateInterval = this.setInterval(() => this.pollDevices('interval'), pollMs);
         } else {
           this.log.info('Periodic HTTP status polling disabled (interval=0). Relying on MQTT for updates.');
         }
@@ -189,6 +199,9 @@ class Navimow extends utils.Adapter {
   // ---- MQTT ----
 
   connectMqtt() {
+    if (this.unloaded) {
+      return Promise.resolve();
+    }
     if (this.deviceArray.length === 0) {
       this.log.info('No devices, skipping MQTT');
       return Promise.resolve();
@@ -223,7 +236,7 @@ class Navimow extends utils.Adapter {
         let brokerUrl;
         const mqttOpts = {
           clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
-          keepalive: 2400,
+          keepalive: MQTT_KEEPALIVE_S,
           reconnectPeriod: 10000,
         };
 
@@ -241,17 +254,18 @@ class Navimow extends utils.Adapter {
             const wsPort = parsed.port || (wsScheme === 'wss' ? 443 : 80);
             const wsPath = (parsed.pathname || '/') + (parsed.search || '');
             brokerUrl = wsScheme + '://' + (parsed.hostname || mqttHost) + ':' + wsPort + wsPath;
+            // rejectUnauthorized belongs into wsOptions for the ws transport;
+            // as a top level option it only applies to mqtts and was a no-op here.
             mqttOpts.wsOptions = {
               headers: { Authorization: 'Bearer ' + this.session.access_token },
+              rejectUnauthorized: true,
             };
-            if (wsScheme === 'wss') {
-              mqttOpts.rejectUnauthorized = true;
-            }
           } catch {
             // Fallback: treat mqttUrl as ws path
             brokerUrl = 'wss://' + mqttHost + ':443' + mqttUrlRaw;
             mqttOpts.wsOptions = {
               headers: { Authorization: 'Bearer ' + this.session.access_token },
+              rejectUnauthorized: true,
             };
           }
         } else {
@@ -278,27 +292,21 @@ class Navimow extends utils.Adapter {
           this.mqttErrorCount = 0;
           // Reset reconnect interval on successful connect
           mqttClient.options.reconnectPeriod = 10000;
-          // Subscribe to device topics
+          // One wildcard subscription per device. The explicit realtimeDate/* topics it
+          // replaces were covered by it anyway, and brokers deliver one copy per matching
+          // subscription - which doubled every state write and every map point.
           for (const deviceId of this.deviceArray) {
-            const topics = [
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/state',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/event',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/attributes',
-              '/downlink/vehicle/' + deviceId + '/realtimeDate/location',
-              '/downlink/vehicle/' + deviceId + '/#',
-            ];
-            for (const topic of topics) {
-              mqttClient.subscribe(topic, (err) => {
-                if (this.mqttClient !== mqttClient) {
-                  return;
-                }
-                if (err) {
-                  this.log.error('MQTT subscribe error for ' + topic + ': ' + err.message);
-                } else {
-                  this.log.debug('MQTT subscribed to ' + topic);
-                }
-              });
-            }
+            const topic = '/downlink/vehicle/' + deviceId + '/#';
+            mqttClient.subscribe(topic, (err) => {
+              if (this.mqttClient !== mqttClient) {
+                return;
+              }
+              if (err) {
+                this.log.error('MQTT subscribe error for ' + topic + ': ' + err.message);
+              } else {
+                this.log.debug('MQTT subscribed to ' + topic);
+              }
+            });
           }
         });
 
@@ -342,7 +350,7 @@ class Navimow extends utils.Adapter {
             this.log.info('MQTT connection closed');
           }
           this.mqttConnected = false;
-          if (!this.mqttRefreshing) {
+          if (!this.mqttRefreshing && !this.unloaded) {
             this.refreshMqttCredentials();
           }
         });
@@ -366,14 +374,12 @@ class Navimow extends utils.Adapter {
 
   handleMqttMessage(topic, payload) {
     try {
-      const parts = topic.split('/').filter((p) => p !== '');
-      // Expected: downlink/vehicle/{device_id}/.../{channel}
-      if (parts.length < 4 || parts[0] !== 'downlink' || parts[1] !== 'vehicle') {
+      const parsed = parseTopic(topic);
+      if (!parsed) {
         this.log.debug('MQTT unknown topic: ' + topic);
         return;
       }
-      const deviceId = parts[2];
-      const channel = parts[parts.length - 1];
+      const { deviceId, channel } = parsed;
 
       if (!this.deviceArray.includes(deviceId)) {
         this.log.debug('MQTT message for unknown device: ' + deviceId);
@@ -383,11 +389,11 @@ class Navimow extends utils.Adapter {
       if (channel === 'location') {
         const now = Date.now();
         this.lastLocationMessage[deviceId] = now;
-        this.setState(deviceId + '.diagnostics.lastLocationMessage', now, true);
-        this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', 0, true);
+        this.setStateSafe(deviceId + '.diagnostics.lastLocationMessage', now);
+        this.setStateSafe(deviceId + '.diagnostics.lastLocationAgeSeconds', 0);
         if (this.locationMqttStale[deviceId]) {
           this.locationMqttStale[deviceId] = false;
-          this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+          this.setStateSafe(deviceId + '.diagnostics.locationMqttStale', false);
           this.log.info('MQTT location stream recovered: device=' + deviceId);
         }
       }
@@ -398,7 +404,7 @@ class Navimow extends utils.Adapter {
 
       // state channel: also store raw JSON
       if (channel === 'state') {
-        this.setState(deviceId + '.status.json', JSON.stringify(data), true);
+        this.setStateSafe(deviceId + '.status.json', JSON.stringify(data));
       }
 
       // location channel: collect points and render map
@@ -406,48 +412,17 @@ class Navimow extends utils.Adapter {
         const points = Array.isArray(data) ? data : [data];
 
         // Reset map when mowingPercentage=0 arrives (before collecting new points)
-        for (const p of points) {
-          if (p && p.mowingPercentage != null && Number(p.mowingPercentage) === 0) {
-            if (this.locationHistory[deviceId]?.length > 0) {
-              this.log.info(`mowingPercentage=0 via MQTT, resetting map for ${deviceId}`);
-              this.locationHistory[deviceId] = [];
-              this.setState(deviceId + '.map', '', true);
-            }
-            break;
-          }
+        if (hasMowingReset(points) && this.locationHistory[deviceId]?.length > 0) {
+          this.log.info(`mowingPercentage=0 via MQTT, resetting map for ${deviceId}`);
+          this.locationHistory[deviceId] = [];
+          this.setStateSafe(deviceId + '.map', '');
         }
 
         if (!this.locationHistory[deviceId]) {
           this.locationHistory[deviceId] = [];
         }
-        const history = this.locationHistory[deviceId];
-        const prevLen = history.length;
-        for (const p of points) {
-          if (p && p.postureX != null && p.postureY != null) {
-            const x = parseFloat(p.postureX);
-            const y = parseFloat(p.postureY);
-            if (isNaN(x) || isNaN(y)) continue;
-            const last = history[history.length - 1];
-            if (!last || last.x !== x || last.y !== y) {
-              history.push({ x, y });
-            }
-          }
-        }
-        if (history.length > prevLen) {
-          const now = Date.now();
-          if (!this.lastMapRender || now - this.lastMapRender >= 1000) {
-            this.lastMapRender = now;
-            this.renderMap(deviceId);
-          } else if (!this.mapRenderTimeout) {
-            this.mapRenderTimeout = this.setTimeout(() => {
-              this.mapRenderTimeout = null;
-              this.lastMapRender = Date.now();
-              this.renderMap(deviceId);
-            }, 1000 - (now - this.lastMapRender));
-          }
-        }
-        if (history.length > 5000) {
-          history.splice(0, history.length - 5000);
+        if (appendLocationPoints(this.locationHistory[deviceId], points, MAP_POINT_LIMIT) > 0) {
+          this.scheduleMapRender(deviceId);
         }
       }
 
@@ -458,15 +433,53 @@ class Navimow extends utils.Adapter {
       }
 
       const folderName = channel === 'state' ? 'status' : channel;
-      this.json2iob.parse(deviceId + '.' + folderName, data, {
-        forceIndex: true,
-        channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
-        descriptions,
-        states,
-      });
+      this.json2iob
+        .parse(deviceId + '.' + folderName, data, {
+          forceIndex: true,
+          channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
+          descriptions,
+          states,
+        })
+        .catch((e) => this.log.warn('MQTT ' + channel + ' state write failed: ' + e.message));
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
     }
+  }
+
+  /**
+   * Write an acknowledged state without leaving an unhandled rejection behind.
+   * A rejected setState (restarting states DB, unloading adapter) would otherwise
+   * kill the adapter process.
+   *
+   * @param {string} id state id relative to the adapter namespace
+   * @param {any} value value to write
+   */
+  setStateSafe(id, value) {
+    this.setState(id, value, true).catch((e) => this.log.debug('setState ' + id + ' failed: ' + e.message));
+  }
+
+  /**
+   * Render the map at most once per MAP_RENDER_MIN_INTERVAL_MS and per device.
+   *
+   * @param {string} deviceId device the path belongs to
+   */
+  scheduleMapRender(deviceId) {
+    if (this.unloaded || this.mapRenderTimeout[deviceId]) {
+      return;
+    }
+    const now = Date.now();
+    const last = this.lastMapRender[deviceId] || 0;
+    const waitMs = MAP_RENDER_MIN_INTERVAL_MS - (now - last);
+    if (waitMs <= 0) {
+      this.lastMapRender[deviceId] = now;
+      this.renderMap(deviceId);
+      return;
+    }
+    this.mapRenderTimeout[deviceId] = this.setTimeout(() => {
+      delete this.mapRenderTimeout[deviceId];
+      this.lastMapRender[deviceId] = Date.now();
+      this.renderMap(deviceId);
+    }, waitMs);
   }
 
   /**
@@ -491,7 +504,7 @@ class Navimow extends utils.Adapter {
     };
     const activeCmd = stateToRemote[vehicleState] || null;
     for (const cmd of Object.keys(COMMAND_MAP)) {
-      this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
+      this.setStateSafe(deviceId + '.remote.' + cmd, cmd === activeCmd);
     }
   }
 
@@ -566,7 +579,7 @@ class Navimow extends utils.Adapter {
     ctx.fill();
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
-    this.setState(deviceId + '.map', base64, true);
+    this.setStateSafe(deviceId + '.map', base64);
   }
 
   disconnectMqtt(suppressCredentialRefresh = false) {
@@ -610,10 +623,10 @@ class Navimow extends utils.Adapter {
     if (!active) {
       this.runningSince[deviceId] = 0;
       this.locationMqttStale[deviceId] = false;
-      this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+      this.setStateSafe(deviceId + '.diagnostics.locationMqttStale', false);
       const lastLocation = this.lastLocationMessage[deviceId] || 0;
       const ageSeconds = lastLocation ? Math.round((now - lastLocation) / 1000) : 0;
-      this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
+      this.setStateSafe(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds);
       return;
     }
 
@@ -625,18 +638,18 @@ class Navimow extends utils.Adapter {
     const lastLocation = this.lastLocationMessage[deviceId] || 0;
     const locationAge = lastLocation ? now - lastLocation : activeAge;
     const ageSeconds = Math.round(locationAge / 1000);
-    this.setState(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds, true);
+    this.setStateSafe(deviceId + '.diagnostics.lastLocationAgeSeconds', ageSeconds);
 
     if (activeAge < LOCATION_STALE_MS || locationAge < LOCATION_STALE_MS) {
       if (this.locationMqttStale[deviceId]) {
         this.locationMqttStale[deviceId] = false;
-        this.setState(deviceId + '.diagnostics.locationMqttStale', false, true);
+        this.setStateSafe(deviceId + '.diagnostics.locationMqttStale', false);
       }
       return;
     }
 
     this.locationMqttStale[deviceId] = true;
-    this.setState(deviceId + '.diagnostics.locationMqttStale', true, true);
+    this.setStateSafe(deviceId + '.diagnostics.locationMqttStale', true);
 
     const lastRecovery = this.lastLocationRecovery[deviceId] || 0;
     if (now - lastRecovery < LOCATION_RECOVERY_COOLDOWN_MS) {
@@ -653,15 +666,15 @@ class Navimow extends utils.Adapter {
   }
 
   async recoverMqttLocationStream(deviceId) {
-    if (this.locationRecoveryRunning) {
-      this.log.debug('MQTT location recovery already running, skipping device=' + deviceId);
+    if (this.locationRecoveryRunning || this.unloaded) {
+      this.log.debug('MQTT location recovery already running or adapter unloading, skipping device=' + deviceId);
       return;
     }
 
     this.locationRecoveryRunning = true;
     const now = Date.now();
     this.lastLocationRecovery[deviceId] = now;
-    this.setState(deviceId + '.diagnostics.lastMqttRecovery', now, true);
+    this.setStateSafe(deviceId + '.diagnostics.lastMqttRecovery', now);
 
     try {
       await this.disconnectMqtt(true);
@@ -675,7 +688,7 @@ class Navimow extends utils.Adapter {
   }
 
   async refreshMqttCredentials() {
-    if (this.mqttRefreshing) return;
+    if (this.mqttRefreshing || this.unloaded) return;
     this.mqttRefreshing = true;
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
@@ -798,10 +811,11 @@ class Navimow extends utils.Adapter {
     if (tokenData) {
       await this.storeToken(tokenData);
       this.log.info('Token refreshed successfully');
-      // Reconnect MQTT with new token
+      // Reconnect MQTT with new token. Both calls have to be awaited, otherwise the
+      // new client is created while the old one is still closing and wins the race.
       this.log.debug('Reconnecting MQTT with new token...');
-      this.disconnectMqtt();
-      this.connectMqtt();
+      await this.disconnectMqtt(true);
+      await this.connectMqtt();
       if (tokenData.expires_in) {
         const refreshMs = (tokenData.expires_in - 300) * 1000;
         if (refreshMs > 0) {
@@ -918,7 +932,7 @@ class Navimow extends utils.Adapter {
               native: {},
             });
           }
-          this.json2iob.parse(id + '.general', device, { descriptions, states });
+          await this.json2iob.parse(id + '.general', device, { descriptions, states });
         }
         this.log.info('Found ' + devices.length + ' device(s)');
       })
@@ -981,14 +995,16 @@ class Navimow extends utils.Adapter {
             if (v != null) deviceData.battery = v;
           }
 
-          this.setState(id + '.status.json', JSON.stringify(deviceData), true);
+          this.setStateSafe(id + '.status.json', JSON.stringify(deviceData));
 
-          this.json2iob.parse(id + '.status', deviceData, {
-            forceIndex: true,
-            channelName: 'Status',
-            descriptions,
-            states,
-          });
+          this.json2iob
+            .parse(id + '.status', deviceData, {
+              forceIndex: true,
+              channelName: 'Status',
+              descriptions,
+              states,
+            })
+            .catch((e) => this.log.warn('Status state write failed: ' + e.message));
 
           if (deviceData.vehicleState != null) {
             this.checkLocationWatchdog(id, deviceData.vehicleState);
@@ -1153,15 +1169,23 @@ class Navimow extends utils.Adapter {
     }
   }
 
-  onUnload(callback) {
+  async onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
-      this.setState('info.connection', false, true);
-      this.disconnectMqtt();
-      this.updateInterval && clearInterval(this.updateInterval);
+      // Set before any await: every reconnect path checks this flag, otherwise the
+      // MQTT close handler rebuilds the connection while the adapter is shutting down.
+      this.unloaded = true;
+      this.updateInterval && this.clearInterval(this.updateInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
-      this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
+      for (const handle of Object.values(this.mapRenderTimeout)) {
+        this.clearTimeout(handle);
+      }
+      this.mapRenderTimeout = {};
+      await this.setStateAsync('info.connection', false, true);
+      // In compact mode the process keeps running, so the client has to be gone
+      // before the callback returns.
+      await this.disconnectMqtt(true);
       callback();
     } catch {
       callback();
