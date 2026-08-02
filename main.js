@@ -60,9 +60,11 @@ class Navimow extends utils.Adapter {
     this.lastStatusUpdate = 0;
     this.refreshTokenTimeout = null;
     this.refreshTimeout = undefined;
+    this.mqttRetryTimeout = null;
     this.mqttClient = null;
     this.mqttConnected = false;
     this.mqttRefreshing = false;
+    this.unloaded = false;
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
@@ -203,6 +205,14 @@ class Navimow extends utils.Adapter {
   // ---- MQTT ----
 
   connectMqtt() {
+    // Any connect attempt supersedes a pending retry.
+    if (this.mqttRetryTimeout) {
+      this.clearTimeout(this.mqttRetryTimeout);
+      this.mqttRetryTimeout = null;
+    }
+    if (this.unloaded) {
+      return Promise.resolve();
+    }
     if (this.deviceArray.length === 0) {
       this.log.info('No devices, skipping MQTT');
       return Promise.resolve();
@@ -217,6 +227,9 @@ class Navimow extends utils.Adapter {
         this.log.debug('MQTT info: ' + JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
           this.log.warn('Failed to get MQTT info: ' + JSON.stringify(res.data));
+          // Server may temporarily block the request (e.g. "url Circuit Breaker").
+          // Without a retry, MQTT stays down until the next token refresh (~55 min).
+          this.scheduleMqttRetry();
           return;
         }
         const mqttInfo = res.data.data ?? {};
@@ -273,6 +286,16 @@ class Navimow extends utils.Adapter {
           brokerUrl = 'mqtt://' + mqttHost + ':1883';
         }
 
+        // The credentials request is async: the adapter may have unloaded, or another
+        // connect path (token refresh, watchdog, retry) may have built a client meanwhile.
+        // Bail on unload, and close any existing client so we never leak a second one.
+        if (this.unloaded) {
+          return;
+        }
+        if (this.mqttClient) {
+          this.mqttClient.end(true);
+          this.mqttClient = null;
+        }
         this.log.info('MQTT connecting to ' + brokerUrl);
         this.log.debug('MQTT clientId: ' + mqttOpts.clientId);
         this.log.debug('MQTT username: ' + (mqttUsername || 'none'));
@@ -375,7 +398,19 @@ class Navimow extends utils.Adapter {
       .catch((error) => {
         this.log.warn('MQTT setup failed: ' + error.message);
         error.response && this.log.debug(JSON.stringify(error.response.data));
+        this.scheduleMqttRetry();
       });
+  }
+
+  scheduleMqttRetry() {
+    if (this.mqttRetryTimeout || this.unloaded) {
+      return;
+    }
+    this.log.info('Retrying MQTT connection in 60s');
+    this.mqttRetryTimeout = this.setTimeout(() => {
+      this.mqttRetryTimeout = null;
+      this.connectMqtt();
+    }, 60 * 1000);
   }
 
   handleMqttMessage(topic, payload) {
@@ -690,7 +725,7 @@ class Navimow extends utils.Adapter {
   }
 
   async refreshMqttCredentials() {
-    if (this.mqttRefreshing) return;
+    if (this.mqttRefreshing || this.unloaded) return;
     this.mqttRefreshing = true;
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
@@ -1189,6 +1224,8 @@ class Navimow extends utils.Adapter {
   onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
+      // Set first: in-flight connect/refresh paths check this before building a client.
+      this.unloaded = true;
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
@@ -1196,6 +1233,7 @@ class Navimow extends utils.Adapter {
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
+      this.mqttRetryTimeout && this.clearTimeout(this.mqttRetryTimeout);
       callback();
     } catch {
       callback();
