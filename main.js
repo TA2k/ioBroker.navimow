@@ -220,7 +220,6 @@ class Navimow extends utils.Adapter {
       headers: this.getAuthHeaders(),
     })
       .then((res) => {
-        this.log.debug('MQTT info: ' + JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
           this.log.warn('Failed to get MQTT info: ' + JSON.stringify(res.data));
           // Server may temporarily block the request (e.g. "url Circuit Breaker").
@@ -241,7 +240,8 @@ class Navimow extends utils.Adapter {
         const mqttUsername = mqttInfo.userName;
         const mqttPassword = mqttInfo.pwdInfo;
 
-        this.log.debug('MQTT info raw: ' + JSON.stringify(mqttInfo));
+        // Do not log mqttInfo verbatim: it contains pwdInfo (the broker password).
+        this.log.debug('MQTT info received: host=' + mqttHost + ' hasCredentials=' + !!(mqttUsername && mqttPassword));
 
         let brokerUrl;
         const mqttOpts = {
@@ -783,8 +783,8 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
         if (res.data && res.data.access_token) {
+          this.log.debug('Token exchange succeeded (expires_in: ' + (res.data.expires_in || 'unknown') + 's)');
           return res.data;
         }
         this.log.error('Token exchange failed: ' + JSON.stringify(res.data));
@@ -811,8 +811,8 @@ class Navimow extends utils.Adapter {
       },
     })
       .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
         if (res.data && res.data.access_token) {
+          this.log.debug('Token refresh succeeded (expires_in: ' + (res.data.expires_in || 'unknown') + 's)');
           return res.data;
         }
         this.log.warn('Token refresh returned no token: ' + JSON.stringify(res.data));
