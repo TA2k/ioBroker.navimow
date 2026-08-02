@@ -64,7 +64,6 @@ class Navimow extends utils.Adapter {
     this.mqttClient = null;
     this.mqttConnected = false;
     this.mqttRefreshing = false;
-    this.unloaded = false;
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
@@ -210,9 +209,6 @@ class Navimow extends utils.Adapter {
       this.clearTimeout(this.mqttRetryTimeout);
       this.mqttRetryTimeout = null;
     }
-    if (this.unloaded) {
-      return Promise.resolve();
-    }
     if (this.deviceArray.length === 0) {
       this.log.info('No devices, skipping MQTT');
       return Promise.resolve();
@@ -286,16 +282,6 @@ class Navimow extends utils.Adapter {
           brokerUrl = 'mqtt://' + mqttHost + ':1883';
         }
 
-        // The credentials request is async: the adapter may have unloaded, or another
-        // connect path (token refresh, watchdog, retry) may have built a client meanwhile.
-        // Bail on unload, and close any existing client so we never leak a second one.
-        if (this.unloaded) {
-          return;
-        }
-        if (this.mqttClient) {
-          this.mqttClient.end(true);
-          this.mqttClient = null;
-        }
         this.log.info('MQTT connecting to ' + brokerUrl);
         this.log.debug('MQTT clientId: ' + mqttOpts.clientId);
         this.log.debug('MQTT username: ' + (mqttUsername || 'none'));
@@ -403,7 +389,7 @@ class Navimow extends utils.Adapter {
   }
 
   scheduleMqttRetry() {
-    if (this.mqttRetryTimeout || this.unloaded) {
+    if (this.mqttRetryTimeout) {
       return;
     }
     this.log.info('Retrying MQTT connection in 60s');
@@ -725,7 +711,7 @@ class Navimow extends utils.Adapter {
   }
 
   async refreshMqttCredentials() {
-    if (this.mqttRefreshing || this.unloaded) return;
+    if (this.mqttRefreshing) return;
     this.mqttRefreshing = true;
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
@@ -1224,8 +1210,6 @@ class Navimow extends utils.Adapter {
   onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
-      // Set first: in-flight connect/refresh paths check this before building a client.
-      this.unloaded = true;
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
