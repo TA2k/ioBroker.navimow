@@ -42,6 +42,8 @@ Periodic HTTP polling refreshes general status values (for example battery, stat
 
 The token is refreshed automatically. A re-login is only needed if the refresh token expires.
 
+Access and refresh token are stored in the adapter's own file storage (`session.json`), not in a state. Installations coming from version 1.0.2 or older migrate the content of `auth.token` automatically on the first start; the state and its channel are removed afterwards.
+
 The **Update interval** setting defines the periodic HTTP status polling interval in minutes (minimum: 1 minute). MQTT stays active in parallel for real-time updates.
 
 Setting the interval to `0` disables periodic polling and relies on MQTT alone. Because the broker only pushes the `state` channel while the mower is operating, the adapter still performs a single HTTP status poll whenever no MQTT status update has arrived for 15 minutes. Without that fallback, battery and `vehicleState` would keep their last values for hours while the mower is docked and charging.
