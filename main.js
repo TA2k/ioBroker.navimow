@@ -63,6 +63,7 @@ class Navimow extends utils.Adapter {
     this.mqttClient = null;
     this.mqttConnected = false;
     this.mqttRefreshing = false;
+    this.unloaded = false;
     this.mqttErrorCount = 0;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
@@ -203,6 +204,9 @@ class Navimow extends utils.Adapter {
   // ---- MQTT ----
 
   connectMqtt() {
+    if (this.unloaded) {
+      return Promise.resolve();
+    }
     if (this.deviceArray.length === 0) {
       this.log.info('No devices, skipping MQTT');
       return Promise.resolve();
@@ -255,17 +259,18 @@ class Navimow extends utils.Adapter {
             const wsPort = parsed.port || (wsScheme === 'wss' ? 443 : 80);
             const wsPath = (parsed.pathname || '/') + (parsed.search || '');
             brokerUrl = wsScheme + '://' + (parsed.hostname || mqttHost) + ':' + wsPort + wsPath;
+            // rejectUnauthorized belongs into wsOptions for the ws transport;
+            // as a top level option it only applies to mqtts and was a no-op here.
             mqttOpts.wsOptions = {
               headers: { Authorization: 'Bearer ' + this.session.access_token },
+              rejectUnauthorized: true,
             };
-            if (wsScheme === 'wss') {
-              mqttOpts.rejectUnauthorized = true;
-            }
           } catch {
             // Fallback: treat mqttUrl as ws path
             brokerUrl = 'wss://' + mqttHost + ':443' + mqttUrlRaw;
             mqttOpts.wsOptions = {
               headers: { Authorization: 'Bearer ' + this.session.access_token },
+              rejectUnauthorized: true,
             };
           }
         } else {
@@ -690,7 +695,7 @@ class Navimow extends utils.Adapter {
   }
 
   async refreshMqttCredentials() {
-    if (this.mqttRefreshing) return;
+    if (this.mqttRefreshing || this.unloaded) return;
     this.mqttRefreshing = true;
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
@@ -1189,6 +1194,9 @@ class Navimow extends utils.Adapter {
   onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
+      // Set first: connectMqtt and refreshMqttCredentials check this flag, otherwise the
+      // MQTT close handler rebuilds the connection while the adapter is shutting down.
+      this.unloaded = true;
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && clearInterval(this.updateInterval);
