@@ -86,8 +86,19 @@ class Navimow extends utils.Adapter {
     if (!Number.isFinite(configuredInterval) || configuredInterval < 0) {
       this.log.info('Invalid interval, defaulting to 5 minutes');
       this.config.interval = 5;
+    } else if (configuredInterval === 0) {
+      this.config.interval = 0;
     } else {
-      this.config.interval = configuredInterval;
+      // Fractional minutes hammer the cloud API (0.1 polls every 6 seconds) and a
+      // value above 35791 minutes overflows the 32 bit delay of setInterval, which
+      // then fires continuously instead of never. One day is well beyond any useful
+      // polling rate and stays clear of that limit.
+      this.config.interval = Math.min(1440, Math.max(1, Math.round(configuredInterval)));
+      if (this.config.interval !== configuredInterval) {
+        this.log.info(
+          'Polling interval ' + configuredInterval + ' adjusted to ' + this.config.interval + ' minute(s)',
+        );
+      }
     }
 
     this.subscribeStates('*');
