@@ -36,6 +36,26 @@
       "newLine": true,
       "xs": 12, "sm": 4, "md": 4, "lg": 4, "xl": 4
     },
+    "_login_status": {
+      "type": "state",
+      "oid": "info.connection",
+      "control": "text",
+      "readOnly": true,
+      "trueText": {
+        "en": "logged in",
+        "de": "angemeldet"
+      },
+      "falseText": {
+        "en": "not logged in",
+        "de": "nicht angemeldet"
+      },
+      "label": {
+        "en": "Login status",
+        "de": "Login-Status"
+      },
+      "newLine": true,
+      "xs": 12, "sm": 4, "md": 4, "lg": 4, "xl": 4
+    },
     "authCode": {
       "type": "text",
       "newLine": true,

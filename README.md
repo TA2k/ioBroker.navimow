@@ -35,6 +35,9 @@ Periodic HTTP polling refreshes general status values (for example battery, stat
 1. Open the adapter settings in ioBroker Admin, the instance has to be running
 2. Click **"Login with Navimow"** and login with your Navimow account
 3. The login page redirects to `http://<admin>:8081/oauth2_callbacks/navimow.0/`, admin hands the authorization code to the adapter, and the adapter restarts with the new token
+4. The callback page confirms the login and can be closed. **Login status** in the settings shows the result, it needs a reload of the settings page
+
+If admin runs with authentication, admin asks for its own login before it processes the callback. That is admin's route, not the adapter's.
 
 If the button does not work - for example because the browser cannot reach the admin address the adapter was given - the manual way still exists:
 
