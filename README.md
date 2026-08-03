@@ -32,13 +32,16 @@ Periodic HTTP polling refreshes general status values (for example battery, stat
 
 ## Setup
 
-1. Open the adapter settings in ioBroker Admin
-2. Click **"Navimow Login öffnen"** to open the Navimow login page
-3. Login with your Navimow account
-4. After login the browser shows **"Seite nicht erreichbar"** - this is expected
-5. Copy the complete URL from the browser address bar (contains `?code=XXXXX`)
-6. Paste the URL into the **Authorization Code** field and save
-7. The adapter exchanges the code for a token and starts automatically
+1. Open the adapter settings in ioBroker Admin, the instance has to be running
+2. Click **"Login with Navimow"** and login with your Navimow account
+3. The login page redirects to `http://<admin>:8081/oauth2_callbacks/navimow.0/`, admin hands the authorization code to the adapter, and the adapter restarts with the new token
+
+If the button does not work - for example because the browser cannot reach the admin address the adapter was given - the manual way still exists:
+
+1. Open the login page linked in the settings, login with your Navimow account
+2. The browser lands on an unreachable page, that is expected
+3. Copy the complete URL from the address bar (contains `?code=XXXXX`)
+4. Paste it into the **Authorization Code** field and save
 
 The token is refreshed automatically. A re-login is only needed if the refresh token expires.
 

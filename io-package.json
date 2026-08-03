@@ -90,6 +90,7 @@
     "mode": "daemon",
     "type": "garden",
     "compact": true,
+    "messagebox": true,
     "connectionType": "cloud",
     "dataSource": "poll",
     "adminUI": {

@@ -12,8 +12,12 @@ const states = require('./lib/states.json');
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
+const OAUTH2_LOGIN_URL = 'https://navimow-h5-fra.willand.com/smartHome/login';
 const CLIENT_ID = 'homeassistant';
 const CLIENT_SECRET = '57056e15-722e-42be-bbaa-b0cbfb208a52';
+// Fallback for the manual login: the browser lands on an unreachable page and the
+// user copies the code out of the address bar. The login button uses the admin
+// callback instead, see onMessage().
 const REDIRECT_URI = 'http://localhost:1/callback';
 
 
@@ -46,7 +50,10 @@ class Navimow extends utils.Adapter {
     });
     this.on('ready', this.onReady.bind(this));
     this.on('stateChange', this.onStateChange.bind(this));
+    this.on('message', this.onMessage.bind(this));
     this.on('unload', this.onUnload.bind(this));
+    this.oauthState = null;
+    this.oauthRedirectUri = '';
     this.deviceArray = [];
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({
@@ -768,7 +775,12 @@ class Navimow extends utils.Adapter {
     };
   }
 
-  exchangeCodeForToken(code) {
+  /**
+   * @param {string} code authorization code
+   * @param {string} [redirectUri] redirect_uri the code was issued for, it has to match the login request
+   * @returns {Promise<Record<string, any> | null>} token data or null
+   */
+  exchangeCodeForToken(code, redirectUri) {
     this.log.debug('Exchanging auth code for token (code length: ' + code.length + ')');
     return this.requestClient({
       method: 'post',
@@ -779,7 +791,7 @@ class Navimow extends utils.Adapter {
         code: code,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri || REDIRECT_URI,
       },
     })
       .then((res) => {
@@ -1204,6 +1216,76 @@ class Navimow extends utils.Adapter {
       this.sendMowerCommand(deviceId, command);
     } else {
       this.log.warn('Unknown remote command: ' + command);
+    }
+  }
+
+  // ---- Login ----
+
+  /**
+   * The login runs through the admin message box: the login button asks for the start
+   * link, and admin routes the redirect of <admin>/oauth2_callbacks/<namespace>/ back
+   * here, so the user no longer has to copy the code out of a dead browser page.
+   *
+   * @param {ioBroker.Message} obj message from admin
+   */
+  async onMessage(obj) {
+    if (!obj || typeof obj !== 'object' || !obj.command) {
+      return;
+    }
+    const message = /** @type {Record<string, any>} */ (obj.message) || {};
+    /** @param {Record<string, any>} response */
+    const respond = (response) => obj.callback && this.sendTo(obj.from, obj.command, response, obj.callback);
+
+    if (obj.command === 'getOAuthStartLink') {
+      let origin;
+      try {
+        origin = new URL(String(message._origin)).origin;
+      } catch {
+        respond({ error: 'Admin did not report its own address, please use the manual login' });
+        return;
+      }
+      this.oauthRedirectUri = origin + '/oauth2_callbacks/' + this.namespace + '/';
+      this.oauthState = crypto.randomBytes(16).toString('hex');
+      respond({
+        openUrl:
+          OAUTH2_LOGIN_URL +
+          '?channel=' +
+          CLIENT_ID +
+          '&client_id=' +
+          CLIENT_ID +
+          '&response_type=code' +
+          '&state=' +
+          this.oauthState +
+          '&redirect_uri=' +
+          encodeURIComponent(this.oauthRedirectUri),
+      });
+      return;
+    }
+
+    if (obj.command === 'oauth2Callback') {
+      // The callback is reachable for anyone who can reach admin, so only accept the
+      // state this instance handed out for the login it started itself.
+      if (!this.oauthState || message.state !== this.oauthState) {
+        this.log.debug(
+          'OAuth callback rejected (state received: ' + (message.state ? 'yes' : 'no') + ', login pending: ' + (this.oauthState ? 'yes' : 'no') + ')',
+        );
+        respond({ error: 'This login does not belong to a login started here, please try again' });
+        return;
+      }
+      this.oauthState = null;
+      if (!message.code) {
+        respond({ error: 'No authorization code received: ' + (message.error_description || message.error || 'unknown reason') });
+        return;
+      }
+      const tokenData = await this.exchangeCodeForToken(String(message.code), this.oauthRedirectUri);
+      if (!tokenData) {
+        respond({ error: 'Token exchange failed, see the adapter log' });
+        return;
+      }
+      await this.storeToken(tokenData);
+      respond({ result: 'Login successful, the adapter restarts now. You can close this window.' });
+      // The instance is up but idle without a token, so pick up the normal startup path.
+      this.setTimeout(() => this.restart(), 1000);
     }
   }
 

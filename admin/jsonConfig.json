@@ -14,22 +14,27 @@
     "_oauth_info": {
       "type": "staticText",
       "text": {
-        "en": "1. Click the login link below and login with your Navimow account<br>2. After login you will be redirected - copy the complete URL from the browser address bar<br><i>The URL contains <b>?code=XXXXX</b></i><br>3. Paste the URL below and save",
-        "de": "1. Klicke auf den Login-Link unten und melde dich mit deinem Navimow-Konto an<br>2. Nach dem Login wirst du weitergeleitet - kopiere die komplette URL aus der Browser-Adressleiste<br><i>Die URL enthält <b>?code=XXXXX</b></i><br>3. Füge die URL unten ein und speichere"
+        "en": "Click <b>Login with Navimow</b> and login with your Navimow account. The authorization comes back to this instance automatically, the instance has to be running.<br>Only if that fails: open <a href=\"https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback\" target=\"_blank\" rel=\"noopener\">the login page manually</a>, login, and paste the complete URL of the unreachable page you land on (it contains <b>?code=XXXXX</b>) into the field below.",
+        "de": "Auf <b>Mit Navimow anmelden</b> klicken und mit dem Navimow-Konto anmelden. Die Autorisierung kommt automatisch bei dieser Instanz an, die Instanz muss dazu laufen.<br>Nur falls das nicht klappt: <a href=\"https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback\" target=\"_blank\" rel=\"noopener\">die Login-Seite manuell öffnen</a>, anmelden und die komplette URL der nicht erreichbaren Seite, auf der man landet (sie enthält <b>?code=XXXXX</b>), unten einfügen."
       },
       "newLine": true,
       "xs": 12, "sm": 12, "md": 12, "lg": 12, "xl": 12
     },
-    "_oauth_link": {
-      "type": "staticLink",
-      "href": "https://navimow-h5-fra.willand.com/smartHome/login?channel=homeassistant&client_id=homeassistant&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback",
+    "_oauth_button": {
+      "type": "sendTo",
+      "command": "getOAuthStartLink",
+      "jsonData": "{\"_origin\": \"${data._origin}\"}",
+      "openUrl": true,
+      "showProcess": true,
+      "timeout": 10000,
+      "variant": "contained",
+      "icon": "auth",
       "label": {
-        "en": "Open Navimow Login",
-        "de": "Navimow Login öffnen"
+        "en": "Login with Navimow",
+        "de": "Mit Navimow anmelden"
       },
       "newLine": true,
-      "xs": 12, "sm": 4, "md": 4, "lg": 4, "xl": 4,
-      "button": true
+      "xs": 12, "sm": 4, "md": 4, "lg": 4, "xl": 4
     },
     "authCode": {
       "type": "text",
