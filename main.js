@@ -1245,6 +1245,8 @@ class Navimow extends utils.Adapter {
         return;
       }
       this.oauthRedirectUri = origin + '/oauth2_callbacks/' + this.namespace + '/';
+      // Only one login at a time: starting a second one (e.g. from another admin tab)
+      // overwrites this state, so the first login's callback is rejected and has to be retried.
       this.oauthState = crypto.randomBytes(16).toString('hex');
       respond({
         openUrl:
