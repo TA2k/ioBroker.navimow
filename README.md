@@ -65,6 +65,8 @@ For each mower device the following channels are created:
 
 The `status.vehicleState` state contains the current mower state.
 
+It is fed from the MQTT `state` channel as soon as that reports a change. The channel calls the field `state` and the HTTP API calls it `vehicleState`, but both use the same values, and the HTTP one answers from a server-side cache that can be one to two minutes behind — it has been seen reporting `isDocked` for a mower that was out mowing. Where the state channel has spoken within the last three minutes, its value stands and a poll landing in between does not overwrite it. While the mower is docked the channel falls quiet and the poll takes over again.
+
 **To check if the mower is currently mowing, check for `isRunning`:**
 
 ```javascript
@@ -113,6 +115,8 @@ The `location` channel receives real-time position data and mowing progress (`mo
 | `location.postureTheta`| Rotation angle (rad)   |
 | `location.vehicleState`| Vehicle state code     |
 | `location.time`        | Timestamp              |
+
+`location.vehicleState` is a number, and its meaning is not documented — neither the Navimow SDK nor the openHAB binding knows a mapping. The adapter therefore does not translate it and passes it on as it arrives. Use `status.vehicleState` for the documented state.
 
 The position data can be visualized as a mowing map using Grafana (e.g. with the Plotly or Geomap panel) or ioBroker.vis.
 

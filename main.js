@@ -28,6 +28,12 @@ const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
 const STATUS_STALE_MS = 15 * 60 * 1000;
 const STATUS_STALE_CHECK_MS = 60 * 1000;
 const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
+
+// How long the MQTT state channel keeps the mower state to itself after it last spoke.
+// Comfortably more than the minute or two getVehicleStatus runs behind, so a poll landing
+// in between cannot put an older state back on display.
+const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
+
 // States that end a mowing session. Leaving one of them for an active state starts a new
 // session and the map is cleared. Only states the mower has actually arrived in count:
 // isDocking/returning and a short isIdle can still go back to isRunning within the same
@@ -81,6 +87,7 @@ class Navimow extends utils.Adapter {
     this.locationMqttStale = {};
     this.locationHistory = {};
     this.mapResetDone = {};
+    this.lastStateChannelAt = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
@@ -444,6 +451,17 @@ class Navimow extends utils.Adapter {
       if (channel === 'state') {
         this.lastStatusUpdate = Date.now();
         this.setState(deviceId + '.status.json', JSON.stringify(data), true);
+        // The state channel calls the mower state "state" and reports it the moment it
+        // changes, while getVehicleStatus calls it "vehicleState" and lags behind by a
+        // minute or two - it still answered "isDocked" for a mower that had been out
+        // mowing for a while. Both are the same vocabulary, so the timely one is put where
+        // the documented datapoint is, and everything reading vehicleState follows along.
+        // Only a message that actually carries a state may keep the poll out of the field
+        // afterwards - the channel also sends payloads without one.
+        if (typeof data.state === 'string' && data.state) {
+          this.lastStateChannelAt[deviceId] = this.lastStatusUpdate;
+          this.setState(deviceId + '.status.vehicleState', data.state, true);
+        }
       }
 
       // location channel: collect points and render map
@@ -1038,6 +1056,24 @@ class Navimow extends utils.Adapter {
               if (Number.isFinite(n)) v = n;
             }
             if (v != null) deviceData.battery = v;
+          }
+
+          // getVehicleStatus answers from a server-side cache that runs a minute or two
+          // behind - it reported "isDocked" for a mower that had been mowing for a while.
+          // Starting the poll later does not make its answer newer, so as long as the state
+          // channel is talking at all, it owns this field and the poll keeps out of it.
+          // Once the channel falls quiet - which it does while the mower is docked - the
+          // cache has long caught up and the poll takes over again.
+          const stateChannelAge = Date.now() - (this.lastStateChannelAt[id] || 0);
+          if (deviceData.vehicleState != null && stateChannelAge < STATE_CHANNEL_TRUST_MS && this.lastVehicleState[id]) {
+            if (deviceData.vehicleState !== this.lastVehicleState[id]) {
+              this.log.debug(
+                `Keeping vehicleState "${this.lastVehicleState[id]}" for ${id}: the state channel spoke ` +
+                  `${Math.round(stateChannelAge / 1000)}s ago, the poll still says "${deviceData.vehicleState}"`,
+              );
+            }
+            // Overwritten rather than dropped, so status.json stays complete.
+            deviceData.vehicleState = this.lastVehicleState[id];
           }
 
           this.lastStatusUpdate = Date.now();
