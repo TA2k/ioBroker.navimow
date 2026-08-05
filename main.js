@@ -28,6 +28,14 @@ const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
 const STATUS_STALE_MS = 15 * 60 * 1000;
 const STATUS_STALE_CHECK_MS = 60 * 1000;
 const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
+// States that end a mowing session. Leaving one of them for an active state starts a new
+// session and the map is cleared. Only states the mower has actually arrived in count:
+// isDocking/returning and a short isIdle can still go back to isRunning within the same
+// session (cancelled dock, pause, recovery), and clearing the map there would throw away the
+// track of a session that is still running. Missing a reset only merges two tracks, which is
+// the cheaper mistake. isPaused, isLifted, Error and Offline are interruptions for the same
+// reason, so resuming out of them keeps the track collected so far.
+const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
@@ -72,6 +80,7 @@ class Navimow extends utils.Adapter {
     this.runningSince = {};
     this.locationMqttStale = {};
     this.locationHistory = {};
+    this.mapResetDone = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
@@ -444,11 +453,7 @@ class Navimow extends utils.Adapter {
         // Reset map when mowingPercentage=0 arrives (before collecting new points)
         for (const p of points) {
           if (p && p.mowingPercentage != null && Number(p.mowingPercentage) === 0) {
-            if (this.locationHistory[deviceId]?.length > 0) {
-              this.log.info(`mowingPercentage=0 via MQTT, resetting map for ${deviceId}`);
-              this.locationHistory[deviceId] = [];
-              this.setState(deviceId + '.map', '', true);
-            }
+            this.resetMap(deviceId, 'mowingPercentage=0 via MQTT');
             break;
           }
         }
@@ -637,6 +642,24 @@ class Navimow extends utils.Adapter {
 
   isLocationActiveState(vehicleState) {
     return ACTIVE_LOCATION_STATES.has(String(vehicleState));
+  }
+
+  /**
+   * Drop the collected track and the rendered map of a device.
+   *
+   * @param {string} deviceId device the map belongs to
+   * @param {string} reason logged so it is visible which trigger cleared the map
+   */
+  resetMap(deviceId, reason) {
+    // Remember it for the session that is starting, no matter whether there was anything
+    // left to clear, so the second trigger for the same session start does not fire.
+    this.mapResetDone[deviceId] = true;
+    if (!this.locationHistory[deviceId]?.length) {
+      return;
+    }
+    this.log.info(`Resetting map for ${deviceId}: ${reason}`);
+    this.locationHistory[deviceId] = [];
+    this.setState(deviceId + '.map', '', true);
   }
 
   checkLocationWatchdog(deviceId, vehicleState) {
@@ -1183,6 +1206,19 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
+          // Session is over, the next start has to clear the map again.
+          if (SESSION_END_STATES.has(newState)) {
+            this.mapResetDone[deviceId] = false;
+          }
+          // Start of a new mowing session: the mowingPercentage=0 reset only fires if the
+          // mower actually reports a 0 sample over MQTT, which it skips whenever the first
+          // location message already carries a progress above zero. Without this the new
+          // track is appended to the one of the previous session. Both triggers can fire for
+          // the same session start though, and the second one would delete the points the
+          // first location message already collected, so only the first one gets to run.
+          if (SESSION_END_STATES.has(prevState) && this.isLocationActiveState(newState) && !this.mapResetDone[deviceId]) {
+            this.resetMap(deviceId, `new mowing session ("${prevState}" -> "${newState}")`);
+          }
         }
       }
       return;
