@@ -3,9 +3,9 @@
 const utils = require('@iobroker/adapter-core');
 const axios = require('axios');
 const Json2iob = require('json2iob');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 const mqtt = require('mqtt');
-const { URL } = require('url');
+const { URL } = require('node:url');
 const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
@@ -180,7 +180,7 @@ class Navimow extends utils.Adapter {
           this.log.info(
             'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
           );
-          this.updateInterval = setInterval(() => this.pollDevices('interval'), pollMs);
+          this.updateInterval = this.setInterval(() => this.pollDevices('interval'), pollMs);
         } else {
           this.log.info(
             'Periodic HTTP status polling disabled (interval=0). Relying on MQTT, with an HTTP fallback poll after ' +
@@ -1248,7 +1248,7 @@ class Navimow extends utils.Adapter {
       this.log.debug('Adapter unloading, cleaning up...');
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
-      this.updateInterval && clearInterval(this.updateInterval);
+      this.updateInterval && this.clearInterval(this.updateInterval);
       this.statusStaleInterval && this.clearInterval(this.statusStaleInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
