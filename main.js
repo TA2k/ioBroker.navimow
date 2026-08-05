@@ -892,7 +892,11 @@ class Navimow extends utils.Adapter {
         forceIndex: true,
         channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
         descriptions,
-        states,
+        // The value lists are keyed by the state names the state channel reports
+        // ("isRunning", "isDocked"). The location channel has a vehicleState of its own, a
+        // number, and attaching the same list to it puts values on the object that its
+        // state can never take.
+        states: channel === 'state' ? states : undefined,
       });
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
