@@ -46,6 +46,17 @@ const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
+// Mowing map: the longer edge of the rendered image in pixels. The shorter edge follows from
+// the shape of the frame, because the image covers exactly the frame and nothing besides.
+const MAP_SIZE_PX = 800;
+// The frame is widened this far past the point that triggered it and snapped to whole metres,
+// so it jumps ahead of the mower and settles instead of nudging on every location message.
+const MAP_FRAME_MARGIN_M = 2;
+// A mower drives well under a metre per second and reports its position every couple of
+// seconds, so a step this large is not driving. It is either a stray position, or the mower
+// really is somewhere else - the next message decides which.
+const LOCATION_JUMP_MAX_M = 10;
+
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
   start: { command: 'action.devices.commands.StartStop', params: { on: true } },
@@ -92,6 +103,8 @@ class Navimow extends utils.Adapter {
     this.mapResetDone = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
+    this.mapFrame = {};
+    this.pendingLocation = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
@@ -491,6 +504,27 @@ class Navimow extends utils.Adapter {
             const y = parseFloat(p.postureY);
             if (isNaN(x) || isNaN(y)) continue;
             const last = history[history.length - 1];
+            // A single position far from the last one is not believed straight away. It
+            // would draw a spike across the map, and because the frame only ever grows it
+            // would widen the picture for good - a one-off stray reading would leave the
+            // real mowing squeezed into a corner for every session to come. The next
+            // message decides: if it lands near the held-back one, the mower really is
+            // somewhere else (back out of the dock, or the adapter restarted onto an older
+            // track) and both are taken. If not, the reading is dropped and never seen again.
+            if (last && Math.hypot(x - last.x, y - last.y) > LOCATION_JUMP_MAX_M) {
+              const pending = this.pendingLocation[deviceId];
+              if (!pending || Math.hypot(x - pending.x, y - pending.y) > LOCATION_JUMP_MAX_M) {
+                this.pendingLocation[deviceId] = { x, y };
+                this.log.debug(
+                  `Holding back position x=${x} y=${y} for ${deviceId}: ` +
+                    `${Math.hypot(x - last.x, y - last.y).toFixed(1)} m from the last one`,
+                );
+                continue;
+              }
+              this.log.debug(`Position x=${x} y=${y} for ${deviceId} confirmed by a second message, taking it`);
+              history.push(pending);
+            }
+            this.pendingLocation[deviceId] = undefined;
             if (!last || last.x !== x || last.y !== y) {
               history.push({ x, y });
             }
@@ -563,43 +597,36 @@ class Navimow extends utils.Adapter {
     if (!points || points.length < 2) return;
     this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
-    const size = 800;
-    const padding = 50;
+    const frame = this.growMapFrame(deviceId, points);
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of points) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
+    // One scale for both axes, and the corners of the image are the corners of the frame:
+    // that is what makes a world position land on a fixed pixel, and what keeps a garden
+    // that is longer than it is wide from being squeezed into a square.
+    const scale = MAP_SIZE_PX / Math.max(frame.maxX - frame.minX, frame.maxY - frame.minY);
+    const width = Math.round((frame.maxX - frame.minX) * scale);
+    const height = Math.round((frame.maxY - frame.minY) * scale);
+    // Y-flip only: real-world Y grows up, canvas Y grows down.
+    const projectX = (x) => (x - frame.minX) * scale;
+    const projectY = (y) => (frame.maxY - y) * scale;
 
-    const rangeX = maxX - minX || 1;
-    const rangeY = maxY - minY || 1;
-    const drawArea = size - 2 * padding;
-    const scaleX = drawArea / rangeX;
-    const scaleY = drawArea / rangeY;
-
-    const canvas = createCanvas(size, size);
+    const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
     // Grid
     ctx.strokeStyle = 'rgba(100,100,100,0.3)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 10; i++) {
-      const pos = padding + (drawArea / 10) * i;
       ctx.beginPath();
-      ctx.moveTo(pos, padding);
-      ctx.lineTo(pos, size - padding);
+      ctx.moveTo((width / 10) * i, 0);
+      ctx.lineTo((width / 10) * i, height);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(padding, pos);
-      ctx.lineTo(size - padding, pos);
+      ctx.moveTo(0, (height / 10) * i);
+      ctx.lineTo(width, (height / 10) * i);
       ctx.stroke();
     }
 
     // Draw path with gradient from start (blue) to current (green)
-    // Y-flip only: real-world Y grows up, canvas Y grows down
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -609,8 +636,8 @@ class Navimow extends utils.Adapter {
       const b = Math.round(255 - 155 * t);
       ctx.strokeStyle = `rgb(0,${g},${b})`;
       ctx.beginPath();
-      ctx.moveTo(padding + (points[i - 1].x - minX) * scaleX, padding + (maxY - points[i - 1].y) * scaleY);
-      ctx.lineTo(padding + (points[i].x - minX) * scaleX, padding + (maxY - points[i].y) * scaleY);
+      ctx.moveTo(projectX(points[i - 1].x), projectY(points[i - 1].y));
+      ctx.lineTo(projectX(points[i].x), projectY(points[i].y));
       ctx.stroke();
     }
 
@@ -618,19 +645,89 @@ class Navimow extends utils.Adapter {
     const first = points[0];
     ctx.fillStyle = '#4488ff';
     ctx.beginPath();
-    ctx.arc(padding + (first.x - minX) * scaleX, padding + (maxY - first.y) * scaleY, 5, 0, Math.PI * 2);
+    ctx.arc(projectX(first.x), projectY(first.y), 5, 0, Math.PI * 2);
     ctx.fill();
 
     // Current position marker (red)
     const last = points[points.length - 1];
     ctx.fillStyle = '#ff4444';
     ctx.beginPath();
-    ctx.arc(padding + (last.x - minX) * scaleX, padding + (maxY - last.y) * scaleY, 5, 0, Math.PI * 2);
+    ctx.arc(projectX(last.x), projectY(last.y), 5, 0, Math.PI * 2);
     ctx.fill();
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
     this.setState(deviceId + '.map', base64, true);
     void this.saveMapTrack(deviceId);
+  }
+
+  /**
+   * The rectangle of the garden, in mower coordinates, that the map image covers.
+   *
+   * It used to be re-fitted to the current point cloud on every render, so every point
+   * beyond the previous extent moved every pixel already drawn and the track crept across
+   * a background image for the whole session. The frame therefore only ever grows, and it
+   * grows a margin past the point that triggered it, snapped to whole metres - so it jumps
+   * ahead of the mower and stops changing once the garden has been driven, instead of
+   * nudging on every location message.
+   *
+   * It is not reset with the track: staying put across sessions is the point.
+   *
+   * @param {string} deviceId device
+   * @param {{x:number,y:number}[]} points the track the map is drawn from
+   * @returns {{minX:number,maxX:number,minY:number,maxY:number}} frame containing them all
+   */
+  growMapFrame(deviceId, points) {
+    const current = this.mapFrame[deviceId];
+    let { minX, maxX, minY, maxY } = current || { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+    for (const p of points) {
+      if (p.x < minX) minX = Math.floor(p.x - MAP_FRAME_MARGIN_M);
+      if (p.x > maxX) maxX = Math.ceil(p.x + MAP_FRAME_MARGIN_M);
+      if (p.y < minY) minY = Math.floor(p.y - MAP_FRAME_MARGIN_M);
+      if (p.y > maxY) maxY = Math.ceil(p.y + MAP_FRAME_MARGIN_M);
+    }
+    if (current && minX === current.minX && maxX === current.maxX && minY === current.minY && maxY === current.maxY) {
+      return current;
+    }
+    const frame = { minX, maxX, minY, maxY };
+    this.mapFrame[deviceId] = frame;
+    const scale = MAP_SIZE_PX / Math.max(maxX - minX, maxY - minY);
+    // Published with the pixel geometry of the render, so a world position's pixel is
+    // (x - minX) * scale from the left and (maxY - y) * scale from the top, without
+    // anyone having to repeat the projection.
+    this.setState(
+      deviceId + '.mapFrame',
+      JSON.stringify({
+        ...frame,
+        width: Math.round((maxX - minX) * scale),
+        height: Math.round((maxY - minY) * scale),
+        scale: Math.round(scale * 100) / 100,
+      }),
+      true,
+    );
+    this.log.debug(`Map frame for ${deviceId} widened to ${JSON.stringify(frame)}`);
+    return frame;
+  }
+
+  /**
+   * @param {string} deviceId device
+   */
+  async loadMapFrame(deviceId) {
+    const state = await this.getStateAsync(deviceId + '.mapFrame');
+    if (!state?.val) return;
+    let frame;
+    try {
+      frame = JSON.parse(String(state.val));
+    } catch (e) {
+      this.log.warn(`Ignoring unreadable map frame for ${deviceId}: ${e.message}`);
+      return;
+    }
+    const { minX, maxX, minY, maxY } = frame || {};
+    if (![minX, maxX, minY, maxY].every(Number.isFinite) || minX >= maxX || minY >= maxY) {
+      this.log.warn(`Ignoring unusable map frame for ${deviceId}: ${state.val}`);
+      return;
+    }
+    this.mapFrame[deviceId] = { minX, maxX, minY, maxY };
+    this.log.debug(`Restored map frame for ${deviceId}: ${JSON.stringify(this.mapFrame[deviceId])}`);
   }
 
   /**
@@ -747,6 +844,8 @@ class Navimow extends utils.Adapter {
       return;
     }
     this.log.info(`Resetting map for ${deviceId}: ${reason}`);
+    // The frame deliberately survives: it describes the garden, not the session, and a new
+    // session drawn in the same frame lands on the same pixels as the one before it.
     this.setState(deviceId + '.map', '', true);
   }
 
@@ -1022,6 +1121,13 @@ class Navimow extends utils.Adapter {
             common: { name: 'Mowing Map track (world positions JSON)', write: false, read: true, type: 'string', role: 'json' },
             native: {},
           });
+          await this.setObjectNotExistsAsync(id + '.mapFrame', {
+            type: 'state',
+            common: { name: 'Mowing Map frame (world bounds and pixel geometry JSON)', write: false, read: true, type: 'string', role: 'json' },
+            native: {},
+          });
+          // Before the track: loading it renders the map, which needs the frame.
+          await this.loadMapFrame(id);
           await this.loadMapTrack(id);
           await this.setObjectNotExistsAsync(id + '.diagnostics', {
             type: 'channel',
