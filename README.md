@@ -30,6 +30,10 @@ ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow S
 
 Periodic HTTP polling refreshes general status values (for example battery, status and vehicleState) to keep them up to date. Location data and mowing progress (`location.mowingPercentage`) are provided by MQTT. During active mowing, the adapter watches the MQTT location stream and performs a controlled MQTT reconnect if location updates stop arriving while HTTP still reports an active mower state.
 
+## Sentry
+
+This adapter uses Sentry libraries to automatically report exceptions and code errors to the developers. For more details and for information how to disable the error reporting see [Sentry-Plugin Documentation](https://github.com/ioBroker/plugin-sentry#plugin-sentry)! Sentry reporting is used starting with js-controller 3.0.
+
 ## Setup
 
 1. Open the adapter settings in ioBroker Admin
