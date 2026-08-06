@@ -641,6 +641,12 @@ class Navimow extends utils.Adapter {
    * Written at most every MAP_TRACK_SAVE_MS and only when points have actually come in
    * since the last write, because a session runs into thousands of them.
    *
+   * The marker for "something came in" is the last point itself, not the length of the
+   * track: locationHistory is capped at 5000 points, so a long session keeps the length at
+   * 5000 while the contents shift, and a length comparison would stop saving right where
+   * this matters most. Every arriving position is pushed as a new object, so the identity
+   * of the last one changes exactly when the track does.
+   *
    * @param {string} deviceId device
    * @param {boolean} [force] write now, regardless of when the last write was
    * @returns {Promise<void>}
@@ -648,13 +654,17 @@ class Navimow extends utils.Adapter {
   async saveMapTrack(deviceId, force) {
     const points = this.locationHistory[deviceId] || [];
     const saved = this.lastTrackSave[deviceId];
-    if (saved && saved.count === points.length && !force) return;
-    if (saved && Date.now() - saved.at < MAP_TRACK_SAVE_MS && !force) return;
-    this.lastTrackSave[deviceId] = { at: Date.now(), count: points.length };
+    if (saved && !force) {
+      if (saved.last === points[points.length - 1]) return;
+      if (Date.now() - saved.at < MAP_TRACK_SAVE_MS) return;
+    }
     // Pairs rather than objects and centimetres rather than raw floats: same picture at a
     // fraction of the size.
     const track = points.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
     await this.setStateAsync(deviceId + '.mapTrack', JSON.stringify(track), true);
+    // Only after the write went through, so a failed one is retried on the next call
+    // instead of being remembered as saved.
+    this.lastTrackSave[deviceId] = { at: Date.now(), last: points[points.length - 1] };
   }
 
   /**
@@ -677,7 +687,7 @@ class Navimow extends utils.Adapter {
     if (!points.length) return;
     this.locationHistory[deviceId] = points;
     // The track on disk is what was just loaded, so nothing needs writing back.
-    this.lastTrackSave[deviceId] = { at: Date.now(), count: points.length };
+    this.lastTrackSave[deviceId] = { at: Date.now(), last: points[points.length - 1] };
     this.log.info(`Restored mowing track for ${deviceId}: ${points.length} points`);
     // Draw it straight away, so the map is there before the mower moves again.
     this.renderMap(deviceId);
@@ -727,14 +737,17 @@ class Navimow extends utils.Adapter {
     // Remember it for the session that is starting, no matter whether there was anything
     // left to clear, so the second trigger for the same session start does not fire.
     this.mapResetDone[deviceId] = true;
-    if (!this.locationHistory[deviceId]?.length) {
+    const had = this.locationHistory[deviceId]?.length;
+    this.locationHistory[deviceId] = [];
+    // Unconditionally, and before the guard below: an empty history says nothing about what
+    // is on disk, and a track left there would come back on the next start after having
+    // been cleared here.
+    void this.saveMapTrack(deviceId, true);
+    if (!had) {
       return;
     }
     this.log.info(`Resetting map for ${deviceId}: ${reason}`);
-    this.locationHistory[deviceId] = [];
     this.setState(deviceId + '.map', '', true);
-    // Straight away, so a restart does not bring the cleared track back.
-    void this.saveMapTrack(deviceId, true);
   }
 
   checkLocationWatchdog(deviceId, vehicleState) {
