@@ -43,6 +43,9 @@ const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 // reason, so resuming out of them keeps the track collected so far.
 const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 
+// How often at most the mowing track is written to its state while the mower is out.
+const MAP_TRACK_SAVE_MS = 30 * 1000;
+
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
   start: { command: 'action.devices.commands.StartStop', params: { on: true } },
@@ -88,6 +91,7 @@ class Navimow extends utils.Adapter {
     this.locationHistory = {};
     this.mapResetDone = {};
     this.lastStateChannelAt = {};
+    this.lastTrackSave = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
@@ -626,6 +630,67 @@ class Navimow extends utils.Adapter {
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
     this.setState(deviceId + '.map', base64, true);
+    void this.saveMapTrack(deviceId);
+  }
+
+  /**
+   * Keep the mowing track so the map survives a restart. Until now the points were only
+   * held in memory, so every restart - including the one that saving the settings triggers
+   * - left the map frozen on its last PNG until the mower drove again.
+   *
+   * Written at most every MAP_TRACK_SAVE_MS and only when points have actually come in
+   * since the last write, because a session runs into thousands of them.
+   *
+   * The marker for "something came in" is the last point itself, not the length of the
+   * track: locationHistory is capped at 5000 points, so a long session keeps the length at
+   * 5000 while the contents shift, and a length comparison would stop saving right where
+   * this matters most. Every arriving position is pushed as a new object, so the identity
+   * of the last one changes exactly when the track does.
+   *
+   * @param {string} deviceId device
+   * @param {boolean} [force] write now, regardless of when the last write was
+   * @returns {Promise<void>}
+   */
+  async saveMapTrack(deviceId, force) {
+    const points = this.locationHistory[deviceId] || [];
+    const saved = this.lastTrackSave[deviceId];
+    if (saved && !force) {
+      if (saved.last === points[points.length - 1]) return;
+      if (Date.now() - saved.at < MAP_TRACK_SAVE_MS) return;
+    }
+    // Pairs rather than objects and centimetres rather than raw floats: same picture at a
+    // fraction of the size.
+    const track = points.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
+    await this.setStateAsync(deviceId + '.mapTrack', JSON.stringify(track), true);
+    // Only after the write went through, so a failed one is retried on the next call
+    // instead of being remembered as saved.
+    this.lastTrackSave[deviceId] = { at: Date.now(), last: points[points.length - 1] };
+  }
+
+  /**
+   * @param {string} deviceId device
+   */
+  async loadMapTrack(deviceId) {
+    const state = await this.getStateAsync(deviceId + '.mapTrack');
+    if (!state?.val) return;
+    let track;
+    try {
+      track = JSON.parse(String(state.val));
+    } catch (e) {
+      this.log.warn(`Ignoring unreadable mowing track for ${deviceId}: ${e.message}`);
+      return;
+    }
+    if (!Array.isArray(track)) return;
+    const points = track
+      .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+      .map((p) => ({ x: p[0], y: p[1] }));
+    if (!points.length) return;
+    this.locationHistory[deviceId] = points;
+    // The track on disk is what was just loaded, so nothing needs writing back.
+    this.lastTrackSave[deviceId] = { at: Date.now(), last: points[points.length - 1] };
+    this.log.info(`Restored mowing track for ${deviceId}: ${points.length} points`);
+    // Draw it straight away, so the map is there before the mower moves again.
+    this.renderMap(deviceId);
   }
 
   disconnectMqtt(suppressCredentialRefresh = false) {
@@ -672,11 +737,16 @@ class Navimow extends utils.Adapter {
     // Remember it for the session that is starting, no matter whether there was anything
     // left to clear, so the second trigger for the same session start does not fire.
     this.mapResetDone[deviceId] = true;
-    if (!this.locationHistory[deviceId]?.length) {
+    const had = this.locationHistory[deviceId]?.length;
+    this.locationHistory[deviceId] = [];
+    // Unconditionally, and before the guard below: an empty history says nothing about what
+    // is on disk, and a track left there would come back on the next start after having
+    // been cleared here.
+    void this.saveMapTrack(deviceId, true);
+    if (!had) {
       return;
     }
     this.log.info(`Resetting map for ${deviceId}: ${reason}`);
-    this.locationHistory[deviceId] = [];
     this.setState(deviceId + '.map', '', true);
   }
 
@@ -947,6 +1017,12 @@ class Navimow extends utils.Adapter {
             common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
             native: {},
           });
+          await this.setObjectNotExistsAsync(id + '.mapTrack', {
+            type: 'state',
+            common: { name: 'Mowing Map track (world positions JSON)', write: false, read: true, type: 'string', role: 'json' },
+            native: {},
+          });
+          await this.loadMapTrack(id);
           await this.setObjectNotExistsAsync(id + '.diagnostics', {
             type: 'channel',
             common: { name: 'Diagnostics' },
@@ -1279,7 +1355,7 @@ class Navimow extends utils.Adapter {
     }
   }
 
-  onUnload(callback) {
+  async onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
       this.setState('info.connection', false, true);
@@ -1290,6 +1366,10 @@ class Navimow extends utils.Adapter {
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
       this.mqttRetryTimeout && this.clearTimeout(this.mqttRetryTimeout);
+      // Awaited, not fired and forgotten: this write keeps the points collected since the
+      // last periodic one, and the adapter is about to stop. Last, so a failing write
+      // cannot skip the cleanup above.
+      await Promise.all(Object.keys(this.locationHistory).map((deviceId) => this.saveMapTrack(deviceId, true)));
       callback();
     } catch {
       callback();

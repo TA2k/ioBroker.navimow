@@ -141,6 +141,8 @@ If HTTP polling reports an active mowing state but no MQTT `location` message is
 
 The adapter renders a live mowing map as a PNG image (base64 data URI) in the state `{deviceId}.map`. The map is automatically updated during mowing and cleared when a new mowing session starts.
 
+The track behind it is kept in `{deviceId}.mapTrack` as a JSON array of `[x, y]` pairs in mower coordinates, rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. It is cleared together with the map when a new mowing session starts.
+
 #### VIS Position Script
 
 To position a mower icon on a static background image (e.g. a screenshot of your garden from the Navimow app) in ioBroker VIS, use the following JavaScript:
