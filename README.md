@@ -143,6 +143,20 @@ The adapter renders a live mowing map as a PNG image (base64 data URI) in the st
 
 The track behind it is kept in `{deviceId}.mapTrack` as a JSON array of `[x, y]` pairs in mower coordinates, rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. It is cleared together with the map when a new mowing session starts.
 
+#### Map Frame
+
+The frame is the rectangle of the garden, in mower coordinates, that the map image covers, and it is published in `{deviceId}.mapFrame`:
+
+```json
+{ "minX": -18, "maxX": 14, "minY": -3, "maxY": 29, "width": 800, "height": 800, "scale": 25 }
+```
+
+The image covers **exactly** the frame — its left edge is `minX`, its right edge `maxX`, its top edge `maxY`, its bottom edge `minY`, with no border around it and one scale for both axes. A world position therefore lands at `(x - minX) * scale` pixels from the left and `(maxY - y) * scale` pixels from the top. The image is at most 800 px on its longer edge; the shorter edge follows the shape of the frame.
+
+The bounds are **metres in the mower's own coordinate system** — the same numbers as `{deviceId}.location.postureX` and `postureY`, not pixels of an image. The adapter widens the frame by two metres, snapped to whole metres, whenever the mower drives outside it, and never shrinks it again. It survives a restart and a new mowing session, so a position keeps its pixel from one render and one session to the next, which is what makes it possible to lay the map over a photo of the garden at all.
+
+Because the frame never shrinks, a stray position far outside the garden would widen it for good. A position more than ten metres from the one before it is therefore not taken at face value: it is held back until the next message either confirms it — the mower really is somewhere else, for instance after leaving the dock — or contradicts it, in which case it is dropped. Should a frame still come out wrong, delete the `mapFrame` **and** `mapTrack` states of the device and restart the adapter; the frame is only ever built from the track, so both have to go.
+
 #### VIS Position Script
 
 To position a mower icon on a static background image (e.g. a screenshot of your garden from the Navimow app) in ioBroker VIS, use the following JavaScript:
