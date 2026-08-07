@@ -141,7 +141,9 @@ If HTTP polling reports an active mowing state but no MQTT `location` message is
 
 The adapter renders a live mowing map as a PNG image (base64 data URI) in the state `{deviceId}.map`. The map is automatically updated during mowing and cleared when a new mowing session starts.
 
-The track behind it is kept in `{deviceId}.mapTrack` as a JSON array of `[x, y]` pairs in mower coordinates, rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. It is cleared together with the map when a new mowing session starts.
+A new session is recognised by the mowing progress reported with each location message: it starts over at zero for a new session, and picks up where it left off when the mower carries on after a charging break. The mower state cannot tell the two apart — a mower that docks halfway through to charge and then drives back out looks exactly like one starting a fresh session — so the map is cleared when the progress reaches zero or falls below the value last seen, and not on a state change.
+
+The track behind it is kept in `{deviceId}.mapTrack` as JSON, `{ "percentage": 42, "points": [[x, y], …] }`, with the positions in mower coordinates rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. The progress is stored with it because otherwise a restart could not tell a new session from a resumed one; a track written by an older version does not carry it and is therefore dropped once, on the first start after the update, so the map stays empty until the mower drives again. It is cleared together with the map when a new mowing session starts.
 
 #### Map Frame
 

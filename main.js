@@ -34,15 +34,6 @@ const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMa
 // in between cannot put an older state back on display.
 const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 
-// States that end a mowing session. Leaving one of them for an active state starts a new
-// session and the map is cleared. Only states the mower has actually arrived in count:
-// isDocking/returning and a short isIdle can still go back to isRunning within the same
-// session (cancelled dock, pause, recovery), and clearing the map there would throw away the
-// track of a session that is still running. Missing a reset only merges two tracks, which is
-// the cheaper mistake. isPaused, isLifted, Error and Offline are interruptions for the same
-// reason, so resuming out of them keeps the track collected so far.
-const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
-
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
@@ -100,7 +91,7 @@ class Navimow extends utils.Adapter {
     this.runningSince = {};
     this.locationMqttStale = {};
     this.locationHistory = {};
-    this.mapResetDone = {};
+    this.lastMowingPercentage = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
     this.mapFrame = {};
@@ -486,12 +477,23 @@ class Navimow extends utils.Adapter {
       if (channel === 'location') {
         const points = Array.isArray(data) ? data : [data];
 
-        // Reset map when mowingPercentage=0 arrives (before collecting new points)
+        // Decide whether this is still the same mowing session, before the new points are
+        // collected. The mowing progress is the only signal that tells a new session from a
+        // continuation: it starts over at zero for a new one and picks up where it left off
+        // when the mower carries on after a charging break.
         for (const p of points) {
-          if (p && p.mowingPercentage != null && Number(p.mowingPercentage) === 0) {
-            this.resetMap(deviceId, 'mowingPercentage=0 via MQTT');
-            break;
+          if (!p || p.mowingPercentage == null) continue;
+          const percentage = Number(p.mowingPercentage);
+          if (!Number.isFinite(percentage)) continue;
+          const previous = this.lastMowingPercentage[deviceId];
+          this.log.debug(`Mowing progress for ${deviceId}: ${previous ?? 'unknown'}% -> ${percentage}%`);
+          // Set before the reset, so the track written out by it already carries the progress
+          // of the session that is starting.
+          this.lastMowingPercentage[deviceId] = percentage;
+          if (percentage === 0 || (previous != null && percentage < previous)) {
+            this.resetMap(deviceId, `mowing progress restarted (${previous ?? 'unknown'}% -> ${percentage}%)`);
           }
+          break;
         }
 
         if (!this.locationHistory[deviceId]) {
@@ -769,8 +771,12 @@ class Navimow extends utils.Adapter {
       if (Date.now() - saved.at < MAP_TRACK_SAVE_MS) return;
     }
     // Pairs rather than objects and centimetres rather than raw floats: same picture at a
-    // fraction of the size.
-    const track = points.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]);
+    // fraction of the size. The mowing progress travels with the track, because without it a
+    // restart cannot tell the first sample of a new session from a resumed one.
+    const track = {
+      percentage: this.lastMowingPercentage[deviceId] ?? null,
+      points: points.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]),
+    };
     await this.setStateAsync(deviceId + '.mapTrack', JSON.stringify(track), true);
     // Only after the write went through, so a failed one is retried on the next call
     // instead of being remembered as saved.
@@ -790,8 +796,19 @@ class Navimow extends utils.Adapter {
       this.log.warn(`Ignoring unreadable mowing track for ${deviceId}: ${e.message}`);
       return;
     }
-    if (!Array.isArray(track)) return;
-    const points = track
+    // A bare array is a track from before the mowing progress travelled with it, so there is
+    // nothing to compare the next progress sample against. Restoring it anyway would append
+    // the next session to it and only sort itself out one session later, so it is dropped
+    // once, on the first start after the update.
+    if (Array.isArray(track)) {
+      this.log.info(`Discarding the mowing track of ${deviceId}: it carries no mowing progress to continue from`);
+      return;
+    }
+    if (!track || !Array.isArray(track.points)) return;
+    if (Number.isFinite(track.percentage)) {
+      this.lastMowingPercentage[deviceId] = track.percentage;
+    }
+    const points = track.points
       .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
       .map((p) => ({ x: p[0], y: p[1] }));
     if (!points.length) return;
@@ -844,9 +861,6 @@ class Navimow extends utils.Adapter {
    * @param {string} reason logged so it is visible which trigger cleared the map
    */
   resetMap(deviceId, reason) {
-    // Remember it for the session that is starting, no matter whether there was anything
-    // left to clear, so the second trigger for the same session start does not fire.
-    this.mapResetDone[deviceId] = true;
     const had = this.locationHistory[deviceId]?.length;
     this.locationHistory[deviceId] = [];
     // Unconditionally, and before the guard below: an empty history says nothing about what
@@ -1437,19 +1451,6 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
-          // Session is over, the next start has to clear the map again.
-          if (SESSION_END_STATES.has(newState)) {
-            this.mapResetDone[deviceId] = false;
-          }
-          // Start of a new mowing session: the mowingPercentage=0 reset only fires if the
-          // mower actually reports a 0 sample over MQTT, which it skips whenever the first
-          // location message already carries a progress above zero. Without this the new
-          // track is appended to the one of the previous session. Both triggers can fire for
-          // the same session start though, and the second one would delete the points the
-          // first location message already collected, so only the first one gets to run.
-          if (SESSION_END_STATES.has(prevState) && this.isLocationActiveState(newState) && !this.mapResetDone[deviceId]) {
-            this.resetMap(deviceId, `new mowing session ("${prevState}" -> "${newState}")`);
-          }
         }
       }
       return;
