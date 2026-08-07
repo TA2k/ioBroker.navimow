@@ -105,6 +105,7 @@ class Navimow extends utils.Adapter {
     this.lastTrackSave = {};
     this.mapFrame = {};
     this.pendingLocation = {};
+    this.lastLocation = {};
     this.lastVehicleState = {};
     this.lastMapRender = 0;
     this.mapRenderTimeout = null;
@@ -502,8 +503,14 @@ class Navimow extends utils.Adapter {
           if (p && p.postureX != null && p.postureY != null) {
             const x = parseFloat(p.postureX);
             const y = parseFloat(p.postureY);
-            if (isNaN(x) || isNaN(y)) continue;
-            const last = history[history.length - 1];
+            // Infinity survives isNaN, and a frame grown to Infinity turns the canvas
+            // dimensions into NaN, which the native canvas answers with an abort of the
+            // whole process. Nothing but a finite coordinate is of any use here anyway.
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            // The frame outlives a map reset, so the first position of a new session would
+            // widen it unchecked. lastLocation keeps the last accepted position across the
+            // reset, so the guard below covers that point too.
+            let last = history[history.length - 1] || this.lastLocation[deviceId];
             // A single position far from the last one is not believed straight away. It
             // would draw a spike across the map, and because the frame only ever grows it
             // would widen the picture for good - a one-off stray reading would leave the
@@ -523,11 +530,15 @@ class Navimow extends utils.Adapter {
               }
               this.log.debug(`Position x=${x} y=${y} for ${deviceId} confirmed by a second message, taking it`);
               history.push(pending);
+              // The confirmed one is now the last point, so an identical reading is not
+              // pushed a second time below.
+              last = pending;
             }
             this.pendingLocation[deviceId] = undefined;
             if (!last || last.x !== x || last.y !== y) {
               history.push({ x, y });
             }
+            this.lastLocation[deviceId] = { x, y };
           }
         }
         if (history.length > prevLen) {
@@ -700,7 +711,9 @@ class Navimow extends utils.Adapter {
         ...frame,
         width: Math.round((maxX - minX) * scale),
         height: Math.round((maxY - minY) * scale),
-        scale: Math.round(scale * 100) / 100,
+        // Exact, not rounded: the render projects with this value, and two decimals would
+        // put a consumer several pixels off at the far edge of the frame.
+        scale,
       }),
       true,
     );
