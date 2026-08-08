@@ -475,25 +475,42 @@ class Navimow extends utils.Adapter {
 
       // location channel: collect points and render map
       if (channel === 'location') {
-        const points = Array.isArray(data) ? data : [data];
+        let points = Array.isArray(data) ? data : [data];
 
         // Decide whether this is still the same mowing session, before the new points are
         // collected. The mowing progress is the only signal that tells a new session from a
         // continuation: it starts over at zero for a new one and picks up where it left off
         // when the mower carries on after a charging break.
-        for (const p of points) {
+        //
+        // Every point of the payload is looked at, not only the first one carrying a progress:
+        // a single message can hold the end of one session and the start of the next
+        // ([80 %, 0 %]), and stopping at the first would take the oldest sample for the truth
+        // and miss the boundary. The newest restart in the batch wins, and the points ahead of
+        // it belong to the session that just ended, so they go with it.
+        let resetAt = -1;
+        let resetFrom;
+        let progress = this.lastMowingPercentage[deviceId];
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
           if (!p || p.mowingPercentage == null) continue;
           const percentage = Number(p.mowingPercentage);
           if (!Number.isFinite(percentage)) continue;
-          const previous = this.lastMowingPercentage[deviceId];
-          this.log.debug(`Mowing progress for ${deviceId}: ${previous ?? 'unknown'}% -> ${percentage}%`);
+          this.log.debug(`Mowing progress for ${deviceId}: ${progress ?? 'unknown'}% -> ${percentage}%`);
+          if (percentage === 0 || (progress != null && percentage < progress)) {
+            resetAt = i;
+            resetFrom = progress;
+          }
+          progress = percentage;
+        }
+        if (progress != null) {
           // Set before the reset, so the track written out by it already carries the progress
           // of the session that is starting.
-          this.lastMowingPercentage[deviceId] = percentage;
-          if (percentage === 0 || (previous != null && percentage < previous)) {
-            this.resetMap(deviceId, `mowing progress restarted (${previous ?? 'unknown'}% -> ${percentage}%)`);
-          }
-          break;
+          this.lastMowingPercentage[deviceId] = progress;
+        }
+        if (resetAt >= 0) {
+          const to = Number(points[resetAt].mowingPercentage);
+          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`);
+          points = points.slice(resetAt);
         }
 
         if (!this.locationHistory[deviceId]) {
@@ -802,6 +819,11 @@ class Navimow extends utils.Adapter {
     // once, on the first start after the update.
     if (Array.isArray(track)) {
       this.log.info(`Discarding the mowing track of ${deviceId}: it carries no mowing progress to continue from`);
+      // Overwrite it and drop the picture drawn from it: left on disk it would be discarded
+      // again on every start, and the map would keep showing a track the adapter no longer
+      // holds until the mower drives again.
+      await this.saveMapTrack(deviceId, true);
+      this.setState(deviceId + '.map', '', true);
       return;
     }
     if (!track || !Array.isArray(track.points)) return;
