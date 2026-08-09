@@ -515,12 +515,18 @@ class Navimow extends utils.Adapter {
         // Whether the progress has said what the pending session start is: a restart answers
         // "a new one", a rise above the last progress answers "the one it went to charge from".
         let decided = false;
+        // Only a fraction of the location messages carry a progress at all - the mower sends
+        // its position every two seconds and the progress roughly once a percent, in a message
+        // of its own. Without this the value carried over from the last one would be reported
+        // and stored again with every position, as if the mower had just said it.
+        let reported = false;
         let progress = this.lastMowingPercentage[deviceId];
         for (let i = 0; i < points.length; i++) {
           const p = points[i];
           if (!p || p.mowingPercentage == null) continue;
           const percentage = Number(p.mowingPercentage);
           if (!Number.isFinite(percentage)) continue;
+          reported = true;
           // A progress of zero only starts a session while there is nothing to compare it
           // against. Once it is known, the drop is what counts: the mower reports zero from
           // leaving the dock until the first percent is done, which on a large lawn is
@@ -542,7 +548,7 @@ class Navimow extends utils.Adapter {
           decided = true;
           this.log.debug(`Giving up on the mowing progress for ${deviceId}, treating it as the same session`);
         }
-        if (progress != null) {
+        if (reported) {
           // Set before the reset, so the track written out by it already carries the progress
           // of the session that is starting.
           this.lastMowingPercentage[deviceId] = progress;
@@ -556,7 +562,7 @@ class Navimow extends utils.Adapter {
           if (!pendingStart) {
             points = points.slice(resetAt);
           }
-        } else if (progress != null) {
+        } else if (reported) {
           const stale = pendingStart ? ', still the one of the session before?' : '';
           this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${stale}`);
         }
