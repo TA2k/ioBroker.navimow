@@ -44,6 +44,12 @@ const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 // interruptions for the same reason, so resuming out of them keeps the track collected so far.
 const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 
+// How long the mowing progress has to say what a mower leaving the dock is doing. It keeps
+// reporting the progress of the session before for about a minute, so the answer is waited
+// for rather than guessed - but not for ever, or a start never answered would spare every
+// position driven since it from the next reset.
+const SESSION_START_GRACE_MS = 5 * 60 * 1000;
+
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
@@ -102,6 +108,7 @@ class Navimow extends utils.Adapter {
     this.locationMqttStale = {};
     this.locationHistory = {};
     this.lastMowingPercentage = {};
+    this.sessionStart = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
     this.mapFrame = {};
@@ -497,8 +504,17 @@ class Navimow extends utils.Adapter {
         // ([80 %, 0 %]), and stopping at the first would take the oldest sample for the truth
         // and miss the boundary. The newest restart in the batch wins, and the points ahead of
         // it belong to the session that just ended, so they go with it.
+        //
+        // The progress is late, though: for about a minute after leaving the dock the mower
+        // still reports the one of the session before. `sessionStart` holds where the track
+        // stood when it left, set on the state change, so the positions driven in that minute
+        // survive the reset the progress asks for once it catches up.
+        const pending = this.sessionStart[deviceId];
         let resetAt = -1;
         let resetFrom;
+        // Whether the progress has said what the pending session start is: a restart answers
+        // "a new one", a rise above the last progress answers "the one it went to charge from".
+        let decided = false;
         let progress = this.lastMowingPercentage[deviceId];
         for (let i = 0; i < points.length; i++) {
           const p = points[i];
@@ -513,8 +529,18 @@ class Navimow extends utils.Adapter {
           if (progress == null ? percentage === 0 : percentage < progress) {
             resetAt = i;
             resetFrom = progress;
+            decided = true;
+          } else if (progress != null && percentage > progress) {
+            decided = true;
           }
           progress = percentage;
+        }
+        if (pending && !decided && Date.now() - pending.at > SESSION_START_GRACE_MS) {
+          // The progress never spoke. Take it for a continuation - it is the answer that keeps
+          // the track - and stop holding the points of a session start that long ago, or a
+          // reset far in the future would spare everything driven since and never clear.
+          decided = true;
+          this.log.debug(`Giving up on the mowing progress for ${deviceId}, treating it as the same session`);
         }
         if (progress != null) {
           // Set before the reset, so the track written out by it already carries the progress
@@ -523,10 +549,18 @@ class Navimow extends utils.Adapter {
         }
         if (resetAt >= 0) {
           const to = Number(points[resetAt].mowingPercentage);
-          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`);
-          points = points.slice(resetAt);
+          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`, pending?.index);
+          // Only without a pending session start do the points ahead of the restart belong to
+          // the session that ended. With one they were all driven after the mower left the
+          // dock, and the progress they carry is the stale one of the session before.
+          if (!pending) {
+            points = points.slice(resetAt);
+          }
         } else if (progress != null) {
-          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%`);
+          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${pending ? ' (still the one of the session before?)' : ''}`);
+        }
+        if (decided) {
+          delete this.sessionStart[deviceId];
         }
 
         if (!this.locationHistory[deviceId]) {
@@ -897,10 +931,15 @@ class Navimow extends utils.Adapter {
    *
    * @param {string} deviceId device the map belongs to
    * @param {string} reason logged so it is visible which trigger cleared the map
+   * @param {number} [keepFrom] index the new session already starts at, so the positions from
+   *   there on survive. Zero is a meaningful value - the mower can leave the dock on an empty
+   *   track - so anything but undefined counts.
    */
-  resetMap(deviceId, reason) {
-    const had = this.locationHistory[deviceId]?.length;
-    this.locationHistory[deviceId] = [];
+  resetMap(deviceId, reason, keepFrom) {
+    const history = this.locationHistory[deviceId] || [];
+    const had = history.length;
+    const keep = keepFrom == null ? [] : history.slice(Math.min(keepFrom, had));
+    this.locationHistory[deviceId] = keep;
     // Unconditionally, and before the guard below: an empty history says nothing about what
     // is on disk, and a track left there would come back on the next start after having
     // been cleared here.
@@ -908,7 +947,15 @@ class Navimow extends utils.Adapter {
     if (!had) {
       return;
     }
-    this.log.info(`Resetting map for ${deviceId}: ${reason}`);
+    this.log.info(
+      `Resetting map for ${deviceId}: ${reason}` +
+        (keep.length ? `, keeping the ${keep.length} positions already driven in the new session` : ''),
+    );
+    if (keep.length) {
+      // The picture is redrawn from the kept positions as soon as this message is collected,
+      // so clearing it here would only make the map blink.
+      return;
+    }
     // The frame deliberately survives: it describes the garden, not the session, and a new
     // session drawn in the same frame lands on the same pixels as the one before it.
     this.setState(deviceId + '.map', '', true);
@@ -1489,16 +1536,25 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
-          // Fallback for mowers that never send a mowing progress with their positions: without
-          // one nothing would ever clear the map and the tracks of all sessions would pile up
-          // in the same picture. As soon as a progress has been seen once it decides alone -
-          // it can tell a resumed session from a new one, which the state cannot.
-          if (
-            this.lastMowingPercentage[deviceId] == null &&
-            SESSION_END_STATES.has(prevState) &&
-            this.isLocationActiveState(newState)
-          ) {
-            this.resetMap(deviceId, `new mowing session ("${prevState}" -> "${newState}"), no mowing progress reported`);
+          if (SESSION_END_STATES.has(prevState) && this.isLocationActiveState(newState)) {
+            if (this.lastMowingPercentage[deviceId] == null) {
+              // Fallback for mowers that never send a mowing progress with their positions:
+              // without one nothing would ever clear the map and the tracks of all sessions
+              // would pile up in the same picture. Where there is a progress it decides alone -
+              // it can tell a resumed session from a new one, which the state cannot.
+              this.resetMap(
+                deviceId,
+                `new mowing session ("${prevState}" -> "${newState}"), no mowing progress reported`,
+              );
+            } else {
+              // The mower is leaving the dock, and whether that starts a new session or carries
+              // on with the one it went to charge from only the progress can say - which for
+              // about a minute still reports the session before. Mark where the track stands,
+              // so whatever is driven until then survives the reset instead of going with the
+              // session that ended.
+              this.sessionStart[deviceId] = { index: this.locationHistory[deviceId]?.length || 0, at: Date.now() };
+              this.log.debug(`Waiting for the mowing progress to tell whether ${deviceId} starts a new session`);
+            }
           }
         }
       }
