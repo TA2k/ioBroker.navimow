@@ -69,6 +69,10 @@ const LOCATION_JUMP_MAX_M = 10;
 // budget worth keeping in a state, and losing the beginning of the session is exactly what
 // the map is there to show.
 const MAP_TRACK_MAX_POINTS = 10000;
+
+// A position older than this is not used to locate the charging station: the mower may have
+// been docked for hours, and the last thing it reported would then be where it was mowing.
+const DOCK_POSITION_MAX_AGE_MS = 2 * 60 * 1000;
 // How far a position may sit off the straight line between its neighbours before it is worth
 // keeping. The mower drives long straight lanes and reports every two seconds, so most of what
 // it sends lies on a line already drawn: at 2 cm half the positions of a recorded session went
@@ -97,8 +101,45 @@ const COMMAND_MAP = {
  * @param {unknown} postureTheta the heading as it arrived, in radians
  * @returns {{x:number,y:number,theta?:number}} the position to keep
  */
+/**
+ * A number, but only from something that was meant as one. `Number()` alone answers 0 for
+ * null, for an empty string, for false and for an empty array, so a position missing half its
+ * coordinates would silently land on an axis instead of being refused.
+ *
+ * @param {unknown} value what stood in the field
+ * @returns {number} the number, or NaN if it was not one
+ */
+function strictNumber(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim() !== '') return Number(value);
+  return NaN;
+}
+
+/**
+ * Read a world position out of a state value, which a user may have written by hand.
+ *
+ * @param {unknown} value the value as it stands in the state
+ * @returns {{x:number,y:number}|null} the position, or null if it is not one
+ */
+function parsePosition(value) {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const x = strictNumber(/** @type {any} */ (parsed).x);
+  const y = strictNumber(/** @type {any} */ (parsed).y);
+  // Infinity survives isNaN and would grow the frame past what a canvas can be sized to.
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
 function trackPoint(x, y, postureTheta) {
-  const theta = Number(postureTheta);
+  const theta = strictNumber(postureTheta);
   return Number.isFinite(theta) ? { x, y, theta } : { x, y };
 }
 
@@ -179,6 +220,7 @@ class Navimow extends utils.Adapter {
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
     this.mapFrame = {};
+    this.dockPosition = {};
     this.pendingLocation = {};
     this.lastLocation = {};
     this.lastVehicleState = {};
@@ -755,7 +797,13 @@ class Navimow extends utils.Adapter {
     if (!points || points.length < 2) return;
     this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
-    const frame = this.growMapFrame(deviceId, points);
+    // The charging station is passed in as another point, so the frame cannot leave it
+    // outside the picture.
+    const dock = this.dockPosition[deviceId];
+    const frame = this.growMapFrame(deviceId, dock ? [...points, dock] : points);
+
+    const configuredSize = Number(this.config.mapMarkerSize);
+    const markerSize = configuredSize >= 4 && configuredSize <= 60 ? configuredSize : 10;
 
     // One scale for both axes, and the corners of the image are the corners of the frame:
     // that is what makes a world position land on a fixed pixel, and what keeps a garden
@@ -827,6 +875,11 @@ class Navimow extends utils.Adapter {
     // finding again on a busy background.
     ctx.globalAlpha = 1;
 
+    // Charging station, where it is known
+    if (dock) {
+      this.drawDockMarker(ctx, projectX(dock.x), projectY(dock.y), markerSize);
+    }
+
     // Start marker (blue)
     const first = points[0];
     ctx.fillStyle = '#4488ff';
@@ -836,8 +889,6 @@ class Navimow extends utils.Adapter {
 
     // Current position marker
     const last = points[points.length - 1];
-    const configuredSize = Number(this.config.mapMarkerSize);
-    const markerSize = configuredSize >= 4 && configuredSize <= 60 ? configuredSize : 10;
     if (this.config.mapMarker === 'mower') {
       // postureTheta is the mower's own heading, counted from +X counterclockwise - the same
       // convention as atan2, checked against the direction actually driven over twelve samples
@@ -1050,6 +1101,113 @@ class Navimow extends utils.Adapter {
       client.end(true, finish);
       timeoutHandle = this.setTimeout(finish, 2000);
     }));
+  }
+
+  /**
+   * Remember where the charging station is. The API has no endpoint for it - the official SDK
+   * knows only authList, mqtt/userInfo, getVehicleStatus, sendCommands and responseCommands,
+   * and none of them carries a coordinate - but the position the mower reports as it arrives
+   * in the dock is the station's, give or take the mower's own length.
+   *
+   * Taken once only, and only from a fresh position. The station does not move, so a second
+   * opinion can only make it worse: vehicleState lags the location stream by up to a minute,
+   * so while the mower drives back out it still reads as docked, and taking its position then
+   * walks the station across the garden after it. Write the state by hand to correct it, or
+   * empty it to have the next docking looked at again.
+   *
+   * @param {string} deviceId device
+   */
+  recordDockPosition(deviceId) {
+    if (this.dockPosition[deviceId]) return;
+    const lastMessage = this.lastLocationMessage[deviceId];
+    if (!lastMessage || Date.now() - lastMessage > DOCK_POSITION_MAX_AGE_MS) {
+      this.log.debug(`Not locating the charging station for ${deviceId}: no recent position`);
+      return;
+    }
+    const history = this.locationHistory[deviceId];
+    const last = history?.[history.length - 1];
+    if (!last) return;
+    this.dockPosition[deviceId] = { x: last.x, y: last.y };
+    this.log.info(`Charging station located for ${deviceId} at x=${last.x} y=${last.y} (mower arrived in the dock)`);
+    this.setState(deviceId + '.dockPosition', JSON.stringify(this.dockPosition[deviceId]), true);
+    // The station has just appeared, and the mower is docked so no position will trigger a
+    // render for hours.
+    this.renderMap(deviceId);
+  }
+
+  /**
+   * @param {string} deviceId device
+   */
+  async loadDockPosition(deviceId) {
+    const state = await this.getStateAsync(deviceId + '.dockPosition');
+    if (!state?.val) return;
+    const position = parsePosition(state.val);
+    if (!position) {
+      this.log.warn(`Ignoring unusable charging station position for ${deviceId}: ${state.val}`);
+      return;
+    }
+    this.dockPosition[deviceId] = position;
+  }
+
+  /**
+   * Take a charging station position written by hand, to correct the one the mower reported or
+   * to set it without waiting for a docking. An empty value forgets it, which also re-arms the
+   * automatic one.
+   *
+   * @param {string} deviceId device
+   * @param {unknown} value the value written to the state
+   */
+  setDockPosition(deviceId, value) {
+    if (value === '' || value == null) {
+      delete this.dockPosition[deviceId];
+      this.log.info(`Charging station position cleared for ${deviceId}`);
+      this.setState(deviceId + '.dockPosition', '', true);
+      this.renderMap(deviceId);
+      return;
+    }
+    const position = parsePosition(value);
+    if (!position) {
+      this.log.warn(`Ignoring invalid charging station position for ${deviceId}, expected {"x":..,"y":..}: ${value}`);
+      return;
+    }
+    this.dockPosition[deviceId] = position;
+    this.log.info(`Charging station position set by hand for ${deviceId}: ${JSON.stringify(position)}`);
+    this.setState(deviceId + '.dockPosition', JSON.stringify(position), true);
+    this.renderMap(deviceId);
+  }
+
+  /**
+   * The charging station: a round badge with a lightning bolt. Round because the position says
+   * nothing about which way the station faces, and a shape with a front would claim an
+   * orientation nobody knows.
+   *
+   * @param {import('@napi-rs/canvas').SKRSContext2D} ctx canvas context
+   * @param {number} x pixel position
+   * @param {number} y pixel position
+   * @param {number} size diameter in pixels
+   */
+  drawDockMarker(ctx, x, y, size) {
+    const r = size / 2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = '#2b2b2b';
+    ctx.strokeStyle = '#f2f2f2';
+    ctx.lineWidth = Math.max(0.5, size * 0.08);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#00a651';
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.12, -r * 0.62);
+    ctx.lineTo(r * 0.42, -r * 0.06);
+    ctx.lineTo(r * 0.08, -r * 0.06);
+    ctx.lineTo(r * 0.14, r * 0.62);
+    ctx.lineTo(-r * 0.42, r * 0.04);
+    ctx.lineTo(-r * 0.06, r * 0.04);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   /**
@@ -1456,8 +1614,21 @@ class Navimow extends utils.Adapter {
             common: { name: 'Mowing Map frame (world bounds and pixel geometry JSON)', write: false, read: true, type: 'string', role: 'json' },
             native: {},
           });
-          // Before the track: loading it renders the map, which needs the frame.
+          await this.setObjectNotExistsAsync(id + '.dockPosition', {
+            type: 'state',
+            common: {
+              name: 'Charging station position (world position JSON, writable)',
+              write: true,
+              read: true,
+              type: 'string',
+              role: 'json',
+            },
+            native: {},
+          });
+          // Both before the track: loading it renders the map, which needs the frame, and the
+          // charging station belongs in that first picture rather than in the next one.
           await this.loadMapFrame(id);
+          await this.loadDockPosition(id);
           await this.loadMapTrack(id);
           await this.setObjectNotExistsAsync(id + '.diagnostics', {
             type: 'channel',
@@ -1774,12 +1945,20 @@ class Navimow extends utils.Adapter {
               this.log.debug(`Waiting for the mowing progress to tell whether ${deviceId} starts a new session`);
             }
           }
+          // Arrived in the dock: the position it reported getting there is the station's.
+          if (SESSION_END_STATES.has(newState)) {
+            this.recordDockPosition(deviceId);
+          }
         }
       }
       return;
     }
 
     // ack:false = user action -> handle remote commands
+    if (channel === 'dockPosition') {
+      this.setDockPosition(deviceId, state.val);
+      return;
+    }
     if (channel !== 'remote') {
       return;
     }
