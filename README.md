@@ -238,6 +238,23 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 | `GET /openapi/mqtt/userInfo/get/v2`        | Get MQTT connection credentials            |
 
 ## Changelog
+<!--
+	Placeholder for the next version (at the beginning of the line):
+	### **WORK IN PROGRESS**
+-->
+### **WORK IN PROGRESS**
+
+- (typhosj) Render a live mowing map as a PNG in `{deviceId}.map`, drawn in a fixed frame so the picture stays put while the mower is out (#7)
+- (typhosj) Keep the mowing track in `{deviceId}.mapTrack`, so the map survives an adapter restart instead of freezing on its last image (#7)
+- (typhosj) Decide a new mowing session by the mowing progress, so a charging break no longer throws away the track of a session that is still running (#23)
+- (typhosj) Publish the mower state from the MQTT state channel instead of the lagging HTTP cache
+- (typhosj) Refresh the status over HTTP when MQTT goes quiet in MQTT-only mode (#18)
+- (TA2k) Retry the MQTT connection after a transient credential failure (#18)
+- (TA2k) Keep the MQTT broker password and the refresh token out of the debug log
+- (TA2k) Read the battery level from `capacityRemaining` again
+- (typhosj) HTTP polling defaults to 5 minutes and can be switched off with 0; the admin UI checks the range
+- (typhosj) Fix the findings of the ioBroker repository checker (#11)
+
 ### 1.0.2 (2026-04-04)
 
 - (TA2k) Add MQTT location topic with real-time position tracking
