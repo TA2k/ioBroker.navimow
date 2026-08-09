@@ -194,32 +194,18 @@ Because the frame never shrinks, a stray position far outside the garden would w
 
 #### VIS Position Script
 
-To position a mower icon on a static background image (e.g. a screenshot of your garden from the Navimow app) in ioBroker VIS, use the following JavaScript:
+To put your own mower icon on top of the map in ioBroker VIS — for instance over a photo of the garden rather than over the rendered track — this script turns the mower's position into pixels of your VIS image. It reads the garden bounds out of `mapFrame` rather than asking you for them, so there is nothing to measure and nothing to keep in step when the frame grows:
 
 ```javascript
 // === Configuration ===
 const deviceId = 'NAVIMOW'; // Your device ID
 const prefix = 'navimow.0.' + deviceId;
 
-// Garden bounds (from Navimow app coordinates, adjust to your garden)
-const gartenXMin = 0.9;
-const gartenXMax = 18.5;
-const gartenYMin = -3.25;
-const gartenYMax = 14;
-
-// Image size in VIS (px)
+// Where the image sits in the VIS view and how big it is (px)
 const bildX = 580;
 const bildY = 573;
-
-// Image position offset in VIS (px)
 const bildPosX = 30;
 const bildPosY = 30;
-
-// Border offsets if lawn doesn't fill entire image (px)
-const randLinks = 18;
-const randRechts = 16;
-const randOben = 14;
-const randUnten = 16;
 
 // Robot icon size (px)
 const robX = 32;
@@ -228,35 +214,38 @@ const robY = 26;
 // Datapoints for VIS widget position (create manually)
 const dpPosX = '0_userdata.0.Navimow.Pos_X';
 const dpPosY = '0_userdata.0.Navimow.Pos_Y';
-
-// === Calculation ===
-const effX = bildX - randLinks - randRechts;
-const effY = bildY - randOben - randUnten;
+const dpRotation = '0_userdata.0.Navimow.Rotation';
 
 on({ id: [prefix + '.location.postureX', prefix + '.location.postureY'], change: 'any' }, () => {
   const posX = getState(prefix + '.location.postureX').val;
   const posY = getState(prefix + '.location.postureY').val;
-  if (posX == null || posY == null) return;
+  const frameRaw = getState(prefix + '.mapFrame').val;
+  if (posX == null || posY == null || !frameRaw) return;
+  const frame = JSON.parse(frameRaw);
 
-  const pctX = (posX - gartenXMin) / (gartenXMax - gartenXMin);
-  const pctY = (posY - gartenYMin) / (gartenYMax - gartenYMin);
+  // The map image covers exactly the frame, no border: its corners are the frame's corners.
+  const pctX = (posX - frame.minX) / (frame.maxX - frame.minX);
+  const pctY = (frame.maxY - posY) / (frame.maxY - frame.minY);
 
-  const pixelX = Math.round(effX * pctX + randLinks + bildPosX - robX / 2);
-  const pixelY = Math.round(bildY - randUnten - bildPosY - effY * pctY - robY / 2);
+  setState(dpPosX, Math.round(bildPosX + bildX * pctX - robX / 2), true);
+  setState(dpPosY, Math.round(bildPosY + bildY * pctY - robY / 2), true);
 
-  setState(dpPosX, pixelX, true);
-  setState(dpPosY, pixelY, true);
+  // Which way it faces, in degrees clockwise from pointing right - what CSS rotate() wants.
+  const theta = getState(prefix + '.location.postureTheta').val;
+  if (theta != null) {
+    setState(dpRotation, Math.round((-theta * 180) / Math.PI), true);
+  }
 });
 ```
 
 **Setup:**
 
-1. Take a screenshot of your garden map from the Navimow app
-2. Use it as background image in a VIS view
-3. Adjust the garden bounds (`gartenXMin/Max`, `gartenYMin/Max`) to match your garden coordinates (visible in the location states)
-4. Adjust image size and border offsets to match your VIS layout
-5. Create the datapoints `Pos_X` and `Pos_Y` under `0_userdata.0`
-6. Add a VIS widget with a mower icon and bind its CSS `left`/`top` to the datapoints
+1. Use the `{deviceId}.map` state as the background image of a VIS view — it already covers exactly the frame, so nothing has to be lined up. To use a photo of your garden instead, line the photo up with that image once; from then on the same maths holds, because the frame no longer moves.
+2. Create the datapoints `Pos_X`, `Pos_Y` and `Rotation` under `0_userdata.0`
+3. Set `bildX`/`bildY` to the size the image is displayed at and `bildPosX`/`bildPosY` to its position in the view
+4. Add a VIS widget with a mower icon, bind its CSS `left`/`top` to the position datapoints and `transform: rotate(…deg)` to the rotation
+
+If you only want to see the track, none of this is needed — the `map` state is a finished picture, and `mapMarker` already draws the mower on it.
 
 ## API
 
