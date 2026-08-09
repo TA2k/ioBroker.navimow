@@ -107,6 +107,46 @@
         "en": "Track width (px)",
         "de": "Linienstärke der Mähspur (px)"
       }
+    },
+    "mapMarker": {
+      "type": "select",
+      "newLine": true,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Current position marker",
+        "de": "Marker der aktuellen Position"
+      },
+      "options": [
+        {
+          "value": "dot",
+          "label": {
+            "en": "Dot",
+            "de": "Punkt"
+          }
+        },
+        {
+          "value": "mower",
+          "label": {
+            "en": "Mower",
+            "de": "Mäher"
+          }
+        }
+      ]
+    },
+    "mapMarkerSize": {
+      "type": "number",
+      "min": 4,
+      "max": 60,
+      "step": 1,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Marker size (px)",
+        "de": "Größe des Markers (px)"
+      },
+      "help": {
+        "en": "The mower needs about 16 to 24 px to be recognisable as one.",
+        "de": "Der Mäher braucht etwa 16 bis 24 px, um als solcher erkennbar zu sein."
+      }
     }
   }
 }

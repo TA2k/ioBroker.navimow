@@ -156,6 +156,10 @@ Three adapter settings decide how the track is drawn, so it can be toned down to
 | `mapLineColor`   | any colour | empty   | Empty keeps the gradient from blue at the start to green at the current position     |
 | `mapLineOpacity` | 0.05 – 1   | 1       | Below 1 a background image shows through the track                                   |
 | `mapLineWidth`   | 0.5 – 10   | 1.5     | Line width in pixels                                                                 |
+| `mapMarker`      | dot, mower | dot     | The current position as a red dot or as a mower seen from above, turned the way it faces |
+| `mapMarkerSize`  | 4 – 60     | 10      | Marker size in pixels; the mower needs about 16 to 24 to be recognisable as one       |
+
+The mower marker is turned by `location.postureTheta`, the heading the mower reports itself. It is right from the first position of a session and stays right while the mower stands still. Where a position carries no heading the marker follows the last stretch driven instead. The heading travels with the track in `mapTrack` as an optional third element of each position, so a restored track keeps it, and a track written without one still reads.
 
 The start and current position markers keep their colours and stay opaque whatever the track does. The opacity applies to the track as a whole rather than to each segment, so a stretch the mower drove twice is no darker than one it drove once.
 

@@ -118,7 +118,9 @@
     "interval": 5,
     "mapLineColor": "",
     "mapLineOpacity": 1,
-    "mapLineWidth": 1.5
+    "mapLineWidth": 1.5,
+    "mapMarker": "dot",
+    "mapMarkerSize": 10
   },
   "objects": [],
   "instanceObjects": [

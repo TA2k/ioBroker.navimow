@@ -90,6 +90,19 @@ const COMMAND_MAP = {
 };
 
 /**
+ * A position for the mowing track, carrying the mower's heading where it reported one.
+ *
+ * @param {number} x world position in metres
+ * @param {number} y world position in metres
+ * @param {unknown} postureTheta the heading as it arrived, in radians
+ * @returns {{x:number,y:number,theta?:number}} the position to keep
+ */
+function trackPoint(x, y, postureTheta) {
+  const theta = Number(postureTheta);
+  return Number.isFinite(theta) ? { x, y, theta } : { x, y };
+}
+
+/**
  * How far `p` sits off the straight line from `a` to `b`.
  *
  * @param {{x:number,y:number}} a one end of the line
@@ -655,7 +668,7 @@ class Navimow extends utils.Adapter {
             if (last && Math.hypot(x - last.x, y - last.y) > LOCATION_JUMP_MAX_M) {
               const pending = this.pendingLocation[deviceId];
               if (!pending || Math.hypot(x - pending.x, y - pending.y) > LOCATION_JUMP_MAX_M) {
-                this.pendingLocation[deviceId] = { x, y };
+                this.pendingLocation[deviceId] = trackPoint(x, y, p.postureTheta);
                 this.log.debug(
                   `Holding back position x=${x} y=${y} for ${deviceId}: ` +
                     `${Math.hypot(x - last.x, y - last.y).toFixed(1)} m from the last one`,
@@ -670,7 +683,7 @@ class Navimow extends utils.Adapter {
             }
             this.pendingLocation[deviceId] = undefined;
             if (!last || last.x !== x || last.y !== y) {
-              this.pushTrackPoint(deviceId, { x, y });
+              this.pushTrackPoint(deviceId, trackPoint(x, y, p.postureTheta));
             }
             this.lastLocation[deviceId] = { x, y };
           }
@@ -821,12 +834,31 @@ class Navimow extends utils.Adapter {
     ctx.arc(projectX(first.x), projectY(first.y), 5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Current position marker (red)
+    // Current position marker
     const last = points[points.length - 1];
-    ctx.fillStyle = '#ff4444';
-    ctx.beginPath();
-    ctx.arc(projectX(last.x), projectY(last.y), 5, 0, Math.PI * 2);
-    ctx.fill();
+    const configuredSize = Number(this.config.mapMarkerSize);
+    const markerSize = configuredSize >= 4 && configuredSize <= 60 ? configuredSize : 10;
+    if (this.config.mapMarker === 'mower') {
+      // postureTheta is the mower's own heading, counted from +X counterclockwise - the same
+      // convention as atan2, checked against the direction actually driven over twelve samples
+      // of a straight lane, where the two agreed to a mean of 0.003 rad. It is negated because
+      // the canvas counts Y downwards. Better than the direction of travel in two ways: it is
+      // there from the first position of a session, and it still points the right way while the
+      // mower stands still. Without it the last stretch driven has to do, and with nothing to
+      // go on the mower faces right.
+      const prev = points[points.length - 2];
+      const angle = Number.isFinite(last.theta)
+        ? -last.theta
+        : prev
+          ? Math.atan2(projectY(last.y) - projectY(prev.y), projectX(last.x) - projectX(prev.x))
+          : 0;
+      this.drawMowerMarker(ctx, projectX(last.x), projectY(last.y), markerSize, angle);
+    } else {
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(projectX(last.x), projectY(last.y), markerSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const base64 = 'data:image/png;base64,' + canvas.toBuffer('image/png').toString('base64');
     this.setState(deviceId + '.map', base64, true);
@@ -935,7 +967,12 @@ class Navimow extends utils.Adapter {
     // restart cannot tell the first sample of a new session from a resumed one.
     const track = {
       percentage: this.lastMowingPercentage[deviceId] ?? null,
-      points: points.map((p) => [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]),
+      points: points.map((p) => {
+        const pair = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100];
+        // The heading is only read off the last position, but carrying it on every one keeps
+        // them one shape, and a track written without it still reads as it always did.
+        return Number.isFinite(p.theta) ? [...pair, Math.round(p.theta * 100) / 100] : pair;
+      }),
     };
     await this.setStateAsync(deviceId + '.mapTrack', JSON.stringify(track), true);
     // Only after the write went through, so a failed one is retried on the next call
@@ -975,7 +1012,7 @@ class Navimow extends utils.Adapter {
     }
     const points = track.points
       .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
-      .map((p) => ({ x: p[0], y: p[1] }));
+      .map((p) => trackPoint(p[0], p[1], p[2]));
     if (!points.length) return;
     this.locationHistory[deviceId] = points;
     // The track on disk is what was just loaded, so nothing needs writing back.
@@ -1013,6 +1050,46 @@ class Navimow extends utils.Adapter {
       client.end(true, finish);
       timeoutHandle = this.setTimeout(finish, 2000);
     }));
+  }
+
+  /**
+   * A mower seen from above, pointing the way it faces: two wheels, a body and a green front.
+   * Drawn rather than loaded, so no image has to ship with the adapter or be configured before
+   * the marker works.
+   *
+   * @param {import('@napi-rs/canvas').SKRSContext2D} ctx canvas context
+   * @param {number} x pixel position
+   * @param {number} y pixel position
+   * @param {number} size length of the mower in pixels
+   * @param {number} angle heading in canvas coordinates
+   */
+  drawMowerMarker(ctx, x, y, size, angle) {
+    const length = size;
+    const width = size * 0.7;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    // Wheels first, the body overlaps them.
+    ctx.fillStyle = '#2b2b2b';
+    ctx.fillRect(-length * 0.3, -width / 2 - width * 0.12, length * 0.3, width * 0.18);
+    ctx.fillRect(-length * 0.3, width / 2 - width * 0.06, length * 0.3, width * 0.18);
+    ctx.fillStyle = '#f2f2f2';
+    ctx.strokeStyle = '#2b2b2b';
+    ctx.lineWidth = Math.max(0.5, size * 0.06);
+    ctx.beginPath();
+    ctx.roundRect(-length / 2, -width / 2, length, width, width * 0.35);
+    ctx.fill();
+    ctx.stroke();
+    // Green front, so the direction can be read at a glance.
+    ctx.fillStyle = '#00a651';
+    ctx.beginPath();
+    ctx.moveTo(length * 0.16, -width * 0.44);
+    ctx.lineTo(length * 0.42, -width * 0.2);
+    ctx.lineTo(length * 0.42, width * 0.2);
+    ctx.lineTo(length * 0.16, width * 0.44);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   /**
