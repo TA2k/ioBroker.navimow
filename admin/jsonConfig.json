@@ -59,6 +59,54 @@
         "en": "Periodic HTTP status polling interval (0 = disabled, MQTT only). MQTT remains active for real-time updates.",
         "de": "Periodisches HTTP-Status-Polling-Intervall (0 = deaktiviert, nur MQTT). MQTT bleibt für Echtzeit-Updates aktiv."
       }
+    },
+    "_map_header": {
+      "type": "header",
+      "text": {
+        "en": "Mowing Map",
+        "de": "Mähkarte"
+      },
+      "size": 3,
+      "newLine": true
+    },
+    "mapLineColor": {
+      "type": "color",
+      "newLine": true,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Track colour",
+        "de": "Farbe der Mähspur"
+      },
+      "help": {
+        "en": "Leave empty for the gradient from blue (start) to green (current position).",
+        "de": "Leer lassen für den Verlauf von Blau (Start) nach Grün (aktuelle Position)."
+      }
+    },
+    "mapLineOpacity": {
+      "type": "number",
+      "min": 0.05,
+      "max": 1,
+      "step": 0.05,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Track opacity",
+        "de": "Deckkraft der Mähspur"
+      },
+      "help": {
+        "en": "1 = opaque. Lower values let a background image show through.",
+        "de": "1 = deckend. Kleinere Werte lassen ein Hintergrundbild durchscheinen."
+      }
+    },
+    "mapLineWidth": {
+      "type": "number",
+      "min": 0.5,
+      "max": 10,
+      "step": 0.5,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Track width (px)",
+        "de": "Linienstärke der Mähspur (px)"
+      }
     }
   }
 }

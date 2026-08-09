@@ -147,6 +147,18 @@ The progress is right but late: for about a minute after leaving the dock the mo
 
 The track behind it is kept in `{deviceId}.mapTrack` as JSON, `{ "percentage": 42, "points": [[x, y], …] }`, with the positions in mower coordinates rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. The progress is stored with it because otherwise a restart could not tell a new session from a resumed one; a track written by an older version does not carry it and is therefore dropped once, on the first start after the update, so the map stays empty until the mower drives again. It is cleared together with the map when a new mowing session starts.
 
+#### Track Style
+
+Three adapter settings decide how the track is drawn, so it can be toned down to suit a picture of the garden underneath it:
+
+| Setting          | Range      | Default | Description                                                                        |
+| ---------------- | ---------- | ------- | ---------------------------------------------------------------------------------- |
+| `mapLineColor`   | any colour | empty   | Empty keeps the gradient from blue at the start to green at the current position     |
+| `mapLineOpacity` | 0.05 – 1   | 1       | Below 1 a background image shows through the track                                   |
+| `mapLineWidth`   | 0.5 – 10   | 1.5     | Line width in pixels                                                                 |
+
+The start and current position markers keep their colours and stay opaque whatever the track does. The opacity applies to the track as a whole rather than to each segment, so a stretch the mower drove twice is no darker than one it drove once.
+
 #### Map Frame
 
 The frame is the rectangle of the garden, in mower coordinates, that the map image covers, and it is published in `{deviceId}.mapFrame`:

@@ -713,20 +713,48 @@ class Navimow extends utils.Adapter {
       ctx.stroke();
     }
 
-    // Draw path with gradient from start (blue) to current (green)
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    for (let i = 1; i < points.length; i++) {
-      const t = i / (points.length - 1);
-      const g = Math.round(120 + 135 * t);
-      const b = Math.round(255 - 155 * t);
-      ctx.strokeStyle = `rgb(0,${g},${b})`;
-      ctx.beginPath();
-      ctx.moveTo(projectX(points[i - 1].x), projectY(points[i - 1].y));
-      ctx.lineTo(projectX(points[i].x), projectY(points[i].y));
-      ctx.stroke();
+    // A value the UI cannot produce - out of range, or text where a number belongs - falls
+    // back to the default on its own: NaN fails every comparison below.
+    const color = String(this.config.mapLineColor || '').trim();
+    const opacity = Number(this.config.mapLineOpacity);
+    const lineWidth = Number(this.config.mapLineWidth);
+
+    // The track is drawn on a canvas of its own, fully opaque, and laid over the map as a
+    // single image. Stroked straight onto the map at a globalAlpha below 1, every overlap
+    // blends with itself into a darker spot - the rounded ends where two segments meet, and
+    // every stretch the mower drove twice - and the line reads as mottled rather than
+    // transparent.
+    const trackCanvas = createCanvas(width, height);
+    const trackCtx = trackCanvas.getContext('2d');
+    trackCtx.lineWidth = lineWidth >= 0.5 && lineWidth <= 10 ? lineWidth : 1.5;
+    trackCtx.lineJoin = 'round';
+    trackCtx.lineCap = 'round';
+    if (color) {
+      // One path and one stroke, so there are no seams between the segments at all.
+      trackCtx.strokeStyle = color;
+      trackCtx.beginPath();
+      trackCtx.moveTo(projectX(points[0].x), projectY(points[0].y));
+      for (let i = 1; i < points.length; i++) {
+        trackCtx.lineTo(projectX(points[i].x), projectY(points[i].y));
+      }
+      trackCtx.stroke();
+    } else {
+      // The gradient from blue at the start to green at the current position is what the map
+      // has always looked like, so it stays the default. It needs a stroke per segment.
+      for (let i = 1; i < points.length; i++) {
+        const t = i / (points.length - 1);
+        trackCtx.strokeStyle = `rgb(0,${Math.round(120 + 135 * t)},${Math.round(255 - 155 * t)})`;
+        trackCtx.beginPath();
+        trackCtx.moveTo(projectX(points[i - 1].x), projectY(points[i - 1].y));
+        trackCtx.lineTo(projectX(points[i].x), projectY(points[i].y));
+        trackCtx.stroke();
+      }
     }
+    ctx.globalAlpha = opacity >= 0.05 && opacity <= 1 ? opacity : 1;
+    ctx.drawImage(trackCanvas, 0, 0);
+    // The markers stay opaque whatever the track does - they are the two positions worth
+    // finding again on a busy background.
+    ctx.globalAlpha = 1;
 
     // Start marker (blue)
     const first = points[0];
