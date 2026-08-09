@@ -267,6 +267,9 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Render a live mowing map as a PNG in `{deviceId}.map`, drawn in a fixed frame so the picture stays put while the mower is out (#7)
 - (typhosj) Keep the mowing track in `{deviceId}.mapTrack`, so the map survives an adapter restart instead of freezing on its last image (#7)
 - (typhosj) Decide a new mowing session by the mowing progress, so a charging break no longer throws away the track of a session that is still running (#23)
+- (typhosj) Keep the first minute of a new session, which the mower still reports as the one before (#23)
+- (typhosj) Keep the whole session in the track rather than its last 5000 positions, so the beginning no longer disappears off the map while the mower is still out (#7)
+- (typhosj) Track colour, opacity and width can be set, so the map can be laid over a picture of the garden (#7)
 - (typhosj) Publish the mower state from the MQTT state channel instead of the lagging HTTP cache
 - (typhosj) Refresh the status over HTTP when MQTT goes quiet in MQTT-only mode (#18)
 - (TA2k) Retry the MQTT connection after a transient credential failure (#18)
