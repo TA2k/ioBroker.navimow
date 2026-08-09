@@ -34,6 +34,16 @@ const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMa
 // in between cannot put an older state back on display.
 const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 
+// States that end a mowing session. Only used as a fallback for mowers that never report a
+// mowing progress with their positions - where they do, the progress decides, because a mower
+// that docks halfway through to charge and drives back out is indistinguishable from one
+// starting fresh by its state alone. Only states the mower has actually arrived in count:
+// isDocking/returning and a short isIdle can still go back to isRunning within the same
+// session (cancelled dock, pause, recovery), and clearing the map there would throw away the
+// track of a session that is still running. isPaused, isLifted, Error and Offline are
+// interruptions for the same reason, so resuming out of them keeps the track collected so far.
+const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
+
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
@@ -495,8 +505,12 @@ class Navimow extends utils.Adapter {
           if (!p || p.mowingPercentage == null) continue;
           const percentage = Number(p.mowingPercentage);
           if (!Number.isFinite(percentage)) continue;
-          this.log.debug(`Mowing progress for ${deviceId}: ${progress ?? 'unknown'}% -> ${percentage}%`);
-          if (percentage === 0 || (progress != null && percentage < progress)) {
+          // A progress of zero only starts a session while there is nothing to compare it
+          // against. Once it is known, the drop is what counts: the mower reports zero from
+          // leaving the dock until the first percent is done, which on a large lawn is
+          // minutes of positions, and treating every one of them as a fresh start would
+          // throw the track away again with each message.
+          if (progress == null ? percentage === 0 : percentage < progress) {
             resetAt = i;
             resetFrom = progress;
           }
@@ -511,6 +525,8 @@ class Navimow extends utils.Adapter {
           const to = Number(points[resetAt].mowingPercentage);
           this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`);
           points = points.slice(resetAt);
+        } else if (progress != null) {
+          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%`);
         }
 
         if (!this.locationHistory[deviceId]) {
@@ -1473,6 +1489,17 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
+          // Fallback for mowers that never send a mowing progress with their positions: without
+          // one nothing would ever clear the map and the tracks of all sessions would pile up
+          // in the same picture. As soon as a progress has been seen once it decides alone -
+          // it can tell a resumed session from a new one, which the state cannot.
+          if (
+            this.lastMowingPercentage[deviceId] == null &&
+            SESSION_END_STATES.has(prevState) &&
+            this.isLocationActiveState(newState)
+          ) {
+            this.resetMap(deviceId, `new mowing session ("${prevState}" -> "${newState}"), no mowing progress reported`);
+          }
         }
       }
       return;
