@@ -64,6 +64,22 @@ const MAP_FRAME_MARGIN_M = 2;
 // really is somewhere else - the next message decides which.
 const LOCATION_JUMP_MAX_M = 10;
 
+// How many positions a mowing track may hold. Reached, the track is thinned rather than cut
+// off at the front: a mower rated for 1200 m2 sends more positions in one session than any
+// budget worth keeping in a state, and losing the beginning of the session is exactly what
+// the map is there to show.
+const MAP_TRACK_MAX_POINTS = 10000;
+// How far a position may sit off the straight line between its neighbours before it is worth
+// keeping. The mower drives long straight lanes and reports every two seconds, so most of what
+// it sends lies on a line already drawn: at 2 cm half the positions of a recorded session went
+// and the track moved by at most 1.1 px of an 800 px map, under a line 1.5 px wide.
+//
+// ponytail: the check only looks at the position before last, not at the ones already dropped,
+// so the error can creep on a long slow curve - measured 1.1 px at 2 cm but 154 px at 10 cm.
+// Doubling this constant is therefore not free. Douglas-Peucker over the whole track holds the
+// error at any tolerance and is the upgrade if the budget ever has to come down much further.
+const MAP_TRACK_MIN_DEVIATION_M = 0.02;
+
 // Command mapping: name -> { command, params }
 const COMMAND_MAP = {
   start: { command: 'action.devices.commands.StartStop', params: { on: true } },
@@ -72,6 +88,43 @@ const COMMAND_MAP = {
   resume: { command: 'action.devices.commands.PauseUnpause', params: { on: true } },
   dock: { command: 'action.devices.commands.Dock', params: null },
 };
+
+/**
+ * How far `p` sits off the straight line from `a` to `b`.
+ *
+ * @param {{x:number,y:number}} a one end of the line
+ * @param {{x:number,y:number}} b the other end
+ * @param {{x:number,y:number}} p the position measured against it
+ * @returns {number} the distance in metres
+ */
+function lineDeviation(a, b, p) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  // Both ends in the same spot: there is no line to measure against, so the distance to it is
+  // simply the distance to that spot.
+  if (length === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  return Math.abs(dx * (a.y - p.y) - (a.x - p.x) * dy) / length;
+}
+
+/**
+ * Drop the positions of a track that lie on the line their neighbours already draw.
+ *
+ * @param {{x:number,y:number}[]} points the track
+ * @param {number} tolerance how far off that line a position has to sit to be worth keeping
+ * @returns {{x:number,y:number}[]} a new track holding the positions that matter
+ */
+function thinTrack(points, tolerance) {
+  const kept = [];
+  for (const p of points) {
+    if (kept.length >= 2 && lineDeviation(kept[kept.length - 2], p, kept[kept.length - 1]) < tolerance) {
+      kept[kept.length - 1] = p;
+    } else {
+      kept.push(p);
+    }
+  }
+  return kept;
+}
 
 class Navimow extends utils.Adapter {
   constructor(options) {
@@ -107,6 +160,7 @@ class Navimow extends utils.Adapter {
     this.runningSince = {};
     this.locationMqttStale = {};
     this.locationHistory = {};
+    this.trackTolerance = {};
     this.lastMowingPercentage = {};
     this.sessionStart = {};
     this.lastStateChannelAt = {};
@@ -605,14 +659,14 @@ class Navimow extends utils.Adapter {
                 continue;
               }
               this.log.debug(`Position x=${x} y=${y} for ${deviceId} confirmed by a second message, taking it`);
-              history.push(pending);
+              this.pushTrackPoint(deviceId, pending);
               // The confirmed one is now the last point, so an identical reading is not
               // pushed a second time below.
               last = pending;
             }
             this.pendingLocation[deviceId] = undefined;
             if (!last || last.x !== x || last.y !== y) {
-              history.push({ x, y });
+              this.pushTrackPoint(deviceId, { x, y });
             }
             this.lastLocation[deviceId] = { x, y };
           }
@@ -629,9 +683,6 @@ class Navimow extends utils.Adapter {
               this.renderMap(deviceId);
             }, 1000 - (now - this.lastMapRender));
           }
-        }
-        if (history.length > 5000) {
-          history.splice(0, history.length - 5000);
         }
       }
 
@@ -856,10 +907,10 @@ class Navimow extends utils.Adapter {
    * since the last write, because a session runs into thousands of them.
    *
    * The marker for "something came in" is the last point itself, not the length of the
-   * track: locationHistory is capped at 5000 points, so a long session keeps the length at
-   * 5000 while the contents shift, and a length comparison would stop saving right where
-   * this matters most. Every arriving position is pushed as a new object, so the identity
-   * of the last one changes exactly when the track does.
+   * track: the track is thinned as positions arrive and again when it reaches its budget, so
+   * its length stands still or even falls while the mowing goes on, and a length comparison
+   * would stop saving right where this matters most. Every position that is kept lands as a
+   * new object at the end, so the identity of the last one changes exactly when the track does.
    *
    * @param {string} deviceId device
    * @param {boolean} [force] write now, regardless of when the last write was
@@ -957,6 +1008,47 @@ class Navimow extends utils.Adapter {
     }));
   }
 
+  /**
+   * Add a position to the mowing track.
+   *
+   * The one before it goes if the new one carries on in its direction: the mower reports every
+   * two seconds and drives long straight lanes, so most of what arrives lies on a line the map
+   * has already drawn, and keeping it costs a point of the budget for nothing.
+   *
+   * @param {string} deviceId device the track belongs to
+   * @param {{x:number,y:number}} point the position that has just arrived
+   */
+  pushTrackPoint(deviceId, point) {
+    const history = this.locationHistory[deviceId];
+    const tolerance = this.trackTolerance[deviceId] || MAP_TRACK_MIN_DEVIATION_M;
+    const n = history.length;
+    if (n >= 2 && lineDeviation(history[n - 2], point, history[n - 1]) < tolerance) {
+      history[n - 1] = point;
+    } else {
+      history.push(point);
+    }
+    if (history.length <= MAP_TRACK_MAX_POINTS) return;
+
+    // The budget is spent. Cutting the front off would take away the part of the session the
+    // map exists to show, so the whole track is thinned again instead, at whatever tolerance
+    // brings it back under the budget with room to grow - and the rest of the session is
+    // collected at that tolerance too, or the next position would spend it again straight away.
+    let tolerated = tolerance;
+    let thinned = history;
+    // Thinned from the original track each round rather than from the round before, so the
+    // positions kept are never further off the real one than the tolerance finally used.
+    while (thinned.length > MAP_TRACK_MAX_POINTS * 0.8) {
+      tolerated *= 2;
+      thinned = thinTrack(history, tolerated);
+    }
+    this.trackTolerance[deviceId] = tolerated;
+    this.locationHistory[deviceId] = thinned;
+    this.log.info(
+      `Mowing track of ${deviceId} reached ${history.length} positions: thinned to ${thinned.length} ` +
+        `at ${(tolerated * 100).toFixed(0)} cm rather than dropping the start of the session`,
+    );
+  }
+
   isLocationActiveState(vehicleState) {
     return ACTIVE_LOCATION_STATES.has(String(vehicleState));
   }
@@ -968,13 +1060,20 @@ class Navimow extends utils.Adapter {
    * @param {string} reason logged so it is visible which trigger cleared the map
    * @param {number} [keepFrom] index the new session already starts at, so the positions from
    *   there on survive. Zero is a meaningful value - the mower can leave the dock on an empty
-   *   track - so anything but undefined counts.
+   *   track - so anything but undefined counts. Thinning at intake replaces the last position
+   *   rather than moving any, so an index stays valid; only a compaction renumbers the track,
+   *   and the clamp below turns that into keeping nothing rather than keeping the wrong ones.
+   *   It cannot keep the wrong ones: a compaction within the five minutes such an index lives
+   *   needs the track to be within ~150 positions of its budget already, which puts the index
+   *   past the compacted length and into the clamp.
    */
   resetMap(deviceId, reason, keepFrom) {
     const history = this.locationHistory[deviceId] || [];
     const had = history.length;
     const keep = keepFrom == null ? [] : history.slice(Math.min(keepFrom, had));
     this.locationHistory[deviceId] = keep;
+    // A new session starts on the full budget, so it is collected at full detail again.
+    delete this.trackTolerance[deviceId];
     // Unconditionally, and before the guard below: an empty history says nothing about what
     // is on disk, and a track left there would come back on the next start after having
     // been cleared here.

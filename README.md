@@ -159,6 +159,12 @@ Three adapter settings decide how the track is drawn, so it can be toned down to
 
 The start and current position markers keep their colours and stay opaque whatever the track does. The opacity applies to the track as a whole rather than to each segment, so a stretch the mower drove twice is no darker than one it drove once.
 
+#### Track Size
+
+The mower reports its position every two seconds and drives long straight lanes, so most of what arrives lies on a line the map has already drawn. A position is therefore only kept once it sits at least two centimetres off the straight line between its neighbours — on a recorded session that halved the positions while moving the drawn track by at most about a pixel.
+
+A track may hold 10000 positions. On a garden large enough to fill that, the track is not cut off at the front — that is the part of the session the map exists to show — but thinned again at a coarser tolerance, so the whole session stays visible and only its detail goes. The log says so when it happens.
+
 #### Map Frame
 
 The frame is the rectangle of the garden, in mower coordinates, that the map image covers, and it is published in `{deviceId}.mapFrame`:
