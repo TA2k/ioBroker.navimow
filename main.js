@@ -797,10 +797,15 @@ class Navimow extends utils.Adapter {
     if (!points || points.length < 2) return;
     this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
-    // The charging station is passed in as another point, so the frame cannot leave it
-    // outside the picture.
+    // The charging station is grown into the frame as well, so it cannot end up outside the
+    // picture. In a call of its own rather than appended to the positions: the track runs to
+    // ten thousand of them and copying that array once a second to add one fixed point to the
+    // end of it is work for nothing.
     const dock = this.dockPosition[deviceId];
-    const frame = this.growMapFrame(deviceId, dock ? [...points, dock] : points);
+    let frame = this.growMapFrame(deviceId, points);
+    if (dock) {
+      frame = this.growMapFrame(deviceId, [dock]);
+    }
 
     const configuredSize = Number(this.config.mapMarkerSize);
     const markerSize = configuredSize >= 4 && configuredSize <= 60 ? configuredSize : 10;
