@@ -628,7 +628,11 @@ class Navimow extends utils.Adapter {
           this.locationHistory[deviceId] = [];
         }
         const history = this.locationHistory[deviceId];
-        const prevLen = history.length;
+        // The track changes without getting longer: a position on the line the map already
+        // draws replaces the one before it rather than joining it, and reaching the budget
+        // makes the track shorter. So what says the map is out of date is the last position
+        // itself - the same marker saveMapTrack uses, and for the same reason.
+        const prevLast = history[history.length - 1];
         for (const p of points) {
           if (p && p.postureX != null && p.postureY != null) {
             const x = parseFloat(p.postureX);
@@ -671,7 +675,10 @@ class Navimow extends utils.Adapter {
             this.lastLocation[deviceId] = { x, y };
           }
         }
-        if (history.length > prevLen) {
+        // Re-read it: a compaction swaps the array out, so the one captured above may be the
+        // track as it stood before.
+        const collected = this.locationHistory[deviceId];
+        if (collected[collected.length - 1] !== prevLast) {
           const now = Date.now();
           if (!this.lastMapRender || now - this.lastMapRender >= 1000) {
             this.lastMapRender = now;
