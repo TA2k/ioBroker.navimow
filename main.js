@@ -509,7 +509,7 @@ class Navimow extends utils.Adapter {
         // still reports the one of the session before. `sessionStart` holds where the track
         // stood when it left, set on the state change, so the positions driven in that minute
         // survive the reset the progress asks for once it catches up.
-        const pending = this.sessionStart[deviceId];
+        const pendingStart = this.sessionStart[deviceId];
         let resetAt = -1;
         let resetFrom;
         // Whether the progress has said what the pending session start is: a restart answers
@@ -535,7 +535,7 @@ class Navimow extends utils.Adapter {
           }
           progress = percentage;
         }
-        if (pending && !decided && Date.now() - pending.at > SESSION_START_GRACE_MS) {
+        if (pendingStart && !decided && Date.now() - pendingStart.at > SESSION_START_GRACE_MS) {
           // The progress never spoke. Take it for a continuation - it is the answer that keeps
           // the track - and stop holding the points of a session start that long ago, or a
           // reset far in the future would spare everything driven since and never clear.
@@ -549,15 +549,16 @@ class Navimow extends utils.Adapter {
         }
         if (resetAt >= 0) {
           const to = Number(points[resetAt].mowingPercentage);
-          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`, pending?.index);
+          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`, pendingStart?.index);
           // Only without a pending session start do the points ahead of the restart belong to
           // the session that ended. With one they were all driven after the mower left the
           // dock, and the progress they carry is the stale one of the session before.
-          if (!pending) {
+          if (!pendingStart) {
             points = points.slice(resetAt);
           }
         } else if (progress != null) {
-          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${pending ? ' (still the one of the session before?)' : ''}`);
+          const stale = pendingStart ? ', still the one of the session before?' : '';
+          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${stale}`);
         }
         if (decided) {
           delete this.sessionStart[deviceId];
