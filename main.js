@@ -68,6 +68,13 @@ const MAP_SIZE_PX = 800;
 // The frame is widened this far past the point that triggered it and snapped to whole metres,
 // so it jumps ahead of the mower and settles instead of nudging on every location message.
 const MAP_FRAME_MARGIN_M = 2;
+// How often at most the map is drawn while positions keep arriving. The mower reports every
+// couple of seconds and a render of a session-length track costs about 80 ms of blocked event
+// loop plus a 65 KiB state write - the same loop that takes the MQTT messages, so drawing every
+// position taxes the data the map is made of. At half a metre per second the picture is at most
+// a metre and a half behind, and the renders that matter - a docking, a reset, a station moved
+// by hand - go straight through without waiting.
+const MAP_RENDER_MIN_MS = 5 * 1000;
 // A mower drives well under a metre per second and reports its position every couple of
 // seconds, so a step this large is not driving. It is either a stray position, or the mower
 // really is somewhere else - the next message decides which.
@@ -234,8 +241,10 @@ class Navimow extends utils.Adapter {
     this.pendingLocation = {};
     this.lastLocation = {};
     this.lastVehicleState = {};
-    this.lastMapRender = 0;
-    this.mapRenderTimeout = null;
+    // Per device: one mower's render must not swallow another's, and the pending timer has to
+    // know which map it was armed for.
+    this.lastMapRender = {};
+    this.mapRenderTimeout = {};
     this.httpPollRunning = false;
     this.httpPollStartedAt = 0;
     this.httpPollToken = 0;
@@ -801,15 +810,16 @@ class Navimow extends utils.Adapter {
         const collected = this.locationHistory[deviceId];
         if (collected[collected.length - 1] !== prevLast) {
           const now = Date.now();
-          if (!this.lastMapRender || now - this.lastMapRender >= 1000) {
-            this.lastMapRender = now;
-            this.renderMap(deviceId);
-          } else if (!this.mapRenderTimeout) {
-            this.mapRenderTimeout = this.setTimeout(() => {
-              this.mapRenderTimeout = null;
-              this.lastMapRender = Date.now();
-              this.renderMap(deviceId);
-            }, 1000 - (now - this.lastMapRender));
+          const last = this.lastMapRender[deviceId] || 0;
+          if (now - last >= MAP_RENDER_MIN_MS) {
+            this.renderMapNow(deviceId);
+          } else if (!this.mapRenderTimeout[deviceId]) {
+            // Trailing edge: the positions arriving until then are all in the track already, so
+            // the one render that follows shows every one of them.
+            this.mapRenderTimeout[deviceId] = this.setTimeout(
+              () => this.renderMapNow(deviceId),
+              MAP_RENDER_MIN_MS - (now - last),
+            );
           }
         }
       }
@@ -856,6 +866,23 @@ class Navimow extends utils.Adapter {
     for (const cmd of Object.keys(COMMAND_MAP)) {
       this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
     }
+  }
+
+  /**
+   * Draw the map at once and restart the throttle window. For the moments the picture has to be
+   * right straight away - the mower reached the dock, the map was reset, the station was moved -
+   * and for the pending render of the throttle itself, which must not fire a second time on top
+   * of one of those.
+   *
+   * @param {string} deviceId device
+   */
+  renderMapNow(deviceId) {
+    if (this.mapRenderTimeout[deviceId]) {
+      this.clearTimeout(this.mapRenderTimeout[deviceId]);
+      this.mapRenderTimeout[deviceId] = null;
+    }
+    this.lastMapRender[deviceId] = Date.now();
+    this.renderMap(deviceId);
   }
 
   renderMap(deviceId) {
@@ -1147,7 +1174,7 @@ class Navimow extends utils.Adapter {
     this.lastTrackSave[deviceId] = { at: Date.now(), last: points[points.length - 1] };
     this.log.info(`Restored mowing track for ${deviceId}: ${points.length} points`);
     // Draw it straight away, so the map is there before the mower moves again.
-    this.renderMap(deviceId);
+    this.renderMapNow(deviceId);
   }
 
   disconnectMqtt(suppressCredentialRefresh = false) {
@@ -1213,9 +1240,6 @@ class Navimow extends utils.Adapter {
     this.dockPosition[deviceId] = { x: last.x, y: last.y };
     this.log.info(`Charging station located for ${deviceId} at x=${last.x} y=${last.y} (mower arrived in the dock)`);
     this.setState(deviceId + '.dockPosition', JSON.stringify(this.dockPosition[deviceId]), true);
-    // The station has just appeared, and the mower is docked so no position will trigger a
-    // render for hours.
-    this.renderMap(deviceId);
   }
 
   /**
@@ -1245,7 +1269,7 @@ class Navimow extends utils.Adapter {
       delete this.dockPosition[deviceId];
       this.log.info(`Charging station position cleared for ${deviceId}`);
       this.setState(deviceId + '.dockPosition', '', true);
-      this.renderMap(deviceId);
+      this.renderMapNow(deviceId);
       return;
     }
     const position = parsePosition(value);
@@ -1256,7 +1280,7 @@ class Navimow extends utils.Adapter {
     this.dockPosition[deviceId] = position;
     this.log.info(`Charging station position set by hand for ${deviceId}: ${JSON.stringify(position)}`);
     this.setState(deviceId + '.dockPosition', JSON.stringify(position), true);
-    this.renderMap(deviceId);
+    this.renderMapNow(deviceId);
   }
 
   /**
@@ -2031,6 +2055,9 @@ class Navimow extends utils.Adapter {
           // Arrived in the dock: the position it reported getting there is the station's.
           if (SESSION_END_STATES.has(newState)) {
             this.recordDockPosition(deviceId);
+            // The session is over, so no further position will trigger the throttled render -
+            // whatever it is holding back is the last picture of the session and is due now.
+            this.renderMapNow(deviceId);
           }
         }
       }
@@ -2070,7 +2097,9 @@ class Navimow extends utils.Adapter {
       this.statusStaleInterval && this.clearInterval(this.statusStaleInterval);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
-      this.mapRenderTimeout && this.clearTimeout(this.mapRenderTimeout);
+      for (const timeout of Object.values(this.mapRenderTimeout)) {
+        timeout && this.clearTimeout(timeout);
+      }
       this.mqttRetryTimeout && this.clearTimeout(this.mqttRetryTimeout);
       // Awaited, not fired and forgotten: this write keeps the points collected since the
       // last periodic one, and the adapter is about to stop. Last, so a failing write
