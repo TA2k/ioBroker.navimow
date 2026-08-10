@@ -486,12 +486,14 @@ class Navimow extends utils.Adapter {
           mqttClient.options.reconnectPeriod = 10000;
           // Subscribe to device topics
           for (const deviceId of this.deviceArray) {
+            // The four channels the adapter reads, and no wildcard beside them: a subscription
+            // to '/#' matches all four as well, and the broker then delivers every message once
+            // per matching subscription.
             const topics = [
               '/downlink/vehicle/' + deviceId + '/realtimeDate/state',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/event',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/attributes',
               '/downlink/vehicle/' + deviceId + '/realtimeDate/location',
-              '/downlink/vehicle/' + deviceId + '/#',
             ];
             for (const topic of topics) {
               mqttClient.subscribe(topic, (err) => {
