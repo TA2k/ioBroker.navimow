@@ -59,11 +59,11 @@ const SESSION_START_GRACE_MS = 5 * 60 * 1000;
 // still catches - and one whose track is a few positions long.
 const MOWED_AREA_RESTART_DROP_M2 = 1;
 
-// A mowing progress dated this far ahead of the host clock does not become the newest one
+// A location reading dated this far ahead of the host clock does not become the newest one
 // seen. Only a wrong clock produces one, and letting it set the mark would lock every real
-// sample after it out of the session decision - so the guard below steps aside instead, and a
-// mower running minutes ahead of its host simply gets the behaviour of before.
-const PROGRESS_TIME_AHEAD_MAX_MS = 5 * 60 * 1000;
+// reading after it out - so the guard steps aside instead, and a mower running minutes ahead
+// of its host simply gets the behaviour of before.
+const LOCATION_TIME_AHEAD_MAX_MS = 5 * 60 * 1000;
 
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
@@ -244,7 +244,7 @@ class Navimow extends utils.Adapter {
     this.trackTolerance = {};
     this.lastMowingPercentage = {};
     this.lastSubtotalArea = {};
-    this.lastProgressAt = {};
+    this.lastLocationAt = {};
     this.sessionStart = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
@@ -582,6 +582,41 @@ class Navimow extends utils.Adapter {
     }, 60 * 1000);
   }
 
+  /**
+   * Whether a location reading is newer than the ones of its kind already seen. The broker
+   * delivers late: on 2026-08-11 a mowing progress sent at 11:48 arrived at 13:34, an hour and
+   * three quarters after the fact and after the session it belonged to had finished at 100 %.
+   * Taken for the present it read as a new session and cleared the map of one that was over.
+   * Positions in the same stream are routinely reordered by a few seconds.
+   *
+   * Each kind carries its own mark, told apart by the `type` the mower itself puts on the
+   * reading. A single mark would let a position - one every two seconds - silence a mowing
+   * progress still on its way, and those come only once a percent.
+   *
+   * @param {string} deviceId device
+   * @param {any} point one entry of the location payload
+   * @returns {boolean} false if the reading has been overtaken and is to be dropped
+   */
+  isFreshLocationReading(deviceId, point) {
+    const at = Number(point?.time);
+    // A reading the mower did not date cannot be placed in time, and dropping it on suspicion
+    // would throw away every message of a firmware that sends no timestamp at all.
+    if (!Number.isFinite(at) || point.type == null) return true;
+    const seen = this.lastLocationAt[deviceId] || (this.lastLocationAt[deviceId] = {});
+    const newest = seen[point.type];
+    if (newest != null && at < newest) {
+      this.log.debug(
+        `Ignoring a type ${point.type} reading for ${deviceId} sent ${Math.round((newest - at) / 1000)} s ` +
+          'before the last one of its kind - it arrived late and says nothing about now',
+      );
+      return false;
+    }
+    if (at - Date.now() < LOCATION_TIME_AHEAD_MAX_MS) {
+      seen[point.type] = at;
+    }
+    return true;
+  }
+
   handleMqttMessage(topic, payload) {
     try {
       const parts = topic.split('/').filter((p) => p !== '');
@@ -634,6 +669,13 @@ class Navimow extends utils.Adapter {
       // location channel: collect points and render map
       if (channel === 'location') {
         let points = Array.isArray(data) ? data : [data];
+
+        // Anything the mower sent before a reading of the same kind already seen is dropped
+        // here, once, so nothing downstream has to think about it: not the session decision,
+        // not the track, and not the states written at the end. A message that is stale
+        // through and through leaves nothing to act on and ends here.
+        points = points.filter((p) => this.isFreshLocationReading(deviceId, p));
+        if (!points.length) return;
 
         // Decide whether this is still the same mowing session, before the new points are
         // collected. The mowing progress is the only signal that tells a new session from a
@@ -691,32 +733,6 @@ class Navimow extends utils.Adapter {
           const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
           const hasArea = Number.isFinite(mowed);
           if (!hasPercentage && !hasArea) continue;
-          // Believed only if it is newer than the newest sample already seen. The broker
-          // delivers late: on 2026-08-11 a sample sent at 11:48 arrived at 13:34, an hour and
-          // three quarters after the fact and after the session it belonged to had finished at
-          // 100 %. Taken for current it read as a restart - 362.91 m² back to 227.18, and the
-          // percentage would have said 100 back to 62 - and it cleared the map of a session
-          // that was over. Position messages are reordered by seconds in the same stream, so
-          // this is the same defect at a smaller scale.
-          //
-          // Only the samples that carry a progress are marked, never the positions in between:
-          // those arrive out of order routinely and would push the mark past a progress still
-          // on its way. The clock is the mower's own throughout, so its samples are compared
-          // against each other rather than against the host.
-          const at = Number(p.time);
-          if (Number.isFinite(at)) {
-            const newest = this.lastProgressAt[deviceId];
-            if (newest != null && at < newest) {
-              this.log.debug(
-                `Ignoring a mowing progress for ${deviceId} sent ${Math.round((newest - at) / 1000)} s ` +
-                  `before the last one - it arrived late and says nothing about the session now`,
-              );
-              continue;
-            }
-            if (at - Date.now() < PROGRESS_TIME_AHEAD_MAX_MS) {
-              this.lastProgressAt[deviceId] = at;
-            }
-          }
           if (hasPercentage) {
             reported = true;
             // A progress of zero only starts a session while there is nothing to compare it

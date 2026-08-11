@@ -34,7 +34,14 @@ function adapter(seed = {}) {
   Object.assign(fake, {
     log: { debug() {}, info() {}, warn() {}, error() {} },
     deviceArray: [DEVICE],
-    json2iob: { parse() {} },
+    // Recorded rather than ignored: a reading that arrived late must not reach the states
+    // either, and this is the only place the payload gets written to them.
+    parsed: [],
+    json2iob: {
+      parse(/** @type {string} */ _id, /** @type {any} */ value) {
+        fake.parsed.push(value);
+      },
+    },
     setState() {},
     setStateAsync: () => Promise.resolve(),
     renderMap() {},
@@ -51,7 +58,7 @@ function adapter(seed = {}) {
     sessionStart: {},
     lastMowingPercentage: {},
     lastSubtotalArea: {},
-    lastProgressAt: {},
+    lastLocationAt: {},
   });
   return Object.assign(fake, seed);
 }
@@ -74,6 +81,7 @@ const START = {
   mowingPercentage: 100,
   mowingWeekArea: '734.08',
   subtotalArea: '0.0',
+  time: 1786428235467,
   type: 2,
 };
 const FIRST_PERCENT = {
@@ -83,6 +91,7 @@ const FIRST_PERCENT = {
   mowingPercentage: 1,
   mowingWeekArea: '738.24',
   subtotalArea: '4.21',
+  time: 1786428451780,
   type: 2,
 };
 
@@ -154,6 +163,8 @@ describe('mowing session detection', () => {
     // either would make the next real sample look like a restart in its own right.
     expect(fake.lastMowingPercentage[DEVICE]).to.equal(100);
     expect(fake.lastSubtotalArea[DEVICE]).to.equal(362.91);
+    // And it must not reach the states: only the message that was current was written.
+    expect(fake.parsed).to.deep.equal([SESSION_DONE]);
   });
 
   it('does not let positions push the mark past a progress still on its way', () => {
@@ -161,12 +172,38 @@ describe('mowing session detection', () => {
       locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
       lastSubtotalArea: { [DEVICE]: 362.91 },
       lastMowingPercentage: { [DEVICE]: 100 },
-      lastProgressAt: { [DEVICE]: SESSION_DONE.time },
+      lastLocationAt: { [DEVICE]: { 2: SESSION_DONE.time } },
     });
 
     // A position from after the progress below, arriving before it - routine in this stream.
     send(fake, [{ postureX: '1.0', postureY: '1.0', time: SESSION_DONE.time + 4000, type: 1 }]);
     send(fake, [{ mowingPercentage: 0, subtotalArea: '0.0', time: SESSION_DONE.time + 2000, type: 2 }]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
+  });
+
+  it('drops a position the mower sent before one already collected', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [] } });
+
+    send(fake, [{ postureX: '1.0', postureY: '1.0', time: 1_000_000, type: 1 }]);
+    send(fake, [{ postureX: '2.0', postureY: '2.0', time: 1_004_000, type: 1 }]);
+    // Reordered by the broker, four seconds behind the one before it.
+    send(fake, [{ postureX: '3.0', postureY: '3.0', time: 1_002_000, type: 1 }]);
+    expect(fake.locationHistory[DEVICE].map((p) => p.x)).to.deep.equal([1, 2]);
+  });
+
+  it('keeps the kinds apart, so a stale position does not silence a fresh progress', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
+      lastSubtotalArea: { [DEVICE]: 362.91 },
+      lastMowingPercentage: { [DEVICE]: 100 },
+    });
+
+    // One payload holding both: the position is overtaken, the progress is not.
+    send(fake, [{ postureX: '9.0', postureY: '9.0', time: 2_000_000, type: 1 }]);
+    send(fake, [
+      { postureX: '8.0', postureY: '8.0', time: 1_999_000, type: 1 },
+      { mowingPercentage: 0, subtotalArea: '0.0', time: 1_999_000, type: 2 },
+    ]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
   });
 
