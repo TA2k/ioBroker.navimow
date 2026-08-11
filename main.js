@@ -59,6 +59,12 @@ const SESSION_START_GRACE_MS = 5 * 60 * 1000;
 // still catches - and one whose track is a few positions long.
 const MOWED_AREA_RESTART_DROP_M2 = 1;
 
+// A mowing progress dated this far ahead of the host clock does not become the newest one
+// seen. Only a wrong clock produces one, and letting it set the mark would lock every real
+// sample after it out of the session decision - so the guard below steps aside instead, and a
+// mower running minutes ahead of its host simply gets the behaviour of before.
+const PROGRESS_TIME_AHEAD_MAX_MS = 5 * 60 * 1000;
+
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
@@ -238,6 +244,7 @@ class Navimow extends utils.Adapter {
     this.trackTolerance = {};
     this.lastMowingPercentage = {};
     this.lastSubtotalArea = {};
+    this.lastProgressAt = {};
     this.sessionStart = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
@@ -678,7 +685,39 @@ class Navimow extends utils.Adapter {
           const p = points[i];
           if (!p) continue;
           const percentage = Number(p.mowingPercentage);
-          if (p.mowingPercentage != null && Number.isFinite(percentage)) {
+          const hasPercentage = p.mowingPercentage != null && Number.isFinite(percentage);
+          // An empty string is not a zero square metres, but Number('') is - and would read as
+          // a mower that has just started over. Only a value that says something counts.
+          const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
+          const hasArea = Number.isFinite(mowed);
+          if (!hasPercentage && !hasArea) continue;
+          // Believed only if it is newer than the newest sample already seen. The broker
+          // delivers late: on 2026-08-11 a sample sent at 11:48 arrived at 13:34, an hour and
+          // three quarters after the fact and after the session it belonged to had finished at
+          // 100 %. Taken for current it read as a restart - 362.91 m² back to 227.18, and the
+          // percentage would have said 100 back to 62 - and it cleared the map of a session
+          // that was over. Position messages are reordered by seconds in the same stream, so
+          // this is the same defect at a smaller scale.
+          //
+          // Only the samples that carry a progress are marked, never the positions in between:
+          // those arrive out of order routinely and would push the mark past a progress still
+          // on its way. The clock is the mower's own throughout, so its samples are compared
+          // against each other rather than against the host.
+          const at = Number(p.time);
+          if (Number.isFinite(at)) {
+            const newest = this.lastProgressAt[deviceId];
+            if (newest != null && at < newest) {
+              this.log.debug(
+                `Ignoring a mowing progress for ${deviceId} sent ${Math.round((newest - at) / 1000)} s ` +
+                  `before the last one - it arrived late and says nothing about the session now`,
+              );
+              continue;
+            }
+            if (at - Date.now() < PROGRESS_TIME_AHEAD_MAX_MS) {
+              this.lastProgressAt[deviceId] = at;
+            }
+          }
+          if (hasPercentage) {
             reported = true;
             // A progress of zero only starts a session while there is nothing to compare it
             // against. Once it is known, the drop is what counts: the mower reports zero from
@@ -694,10 +733,7 @@ class Navimow extends utils.Adapter {
             }
             progress = percentage;
           }
-          // An empty string is not a zero square metres, but Number('') is - and would read as
-          // a mower that has just started over. Only a value that says something counts.
-          const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
-          if (Number.isFinite(mowed)) {
+          if (hasArea) {
             // Only a fall, never a zero on its own: the area stands at "0.0" for the whole
             // first percent, so starting a session on the value rather than on the fall would
             // clear the track again with every message of those minutes. A charging break does

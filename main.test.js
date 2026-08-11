@@ -51,6 +51,7 @@ function adapter(seed = {}) {
     sessionStart: {},
     lastMowingPercentage: {},
     lastSubtotalArea: {},
+    lastProgressAt: {},
   });
   return Object.assign(fake, seed);
 }
@@ -82,6 +83,27 @@ const FIRST_PERCENT = {
   mowingPercentage: 1,
   mowingWeekArea: '738.24',
   subtotalArea: '4.21',
+  type: 2,
+};
+
+// A session ending at 100 %, and the sample the broker delivered an hour and three quarters
+// late on 2026-08-11 - from the resume after a charging break, long since overtaken.
+const SESSION_DONE = {
+  action: 5,
+  currentMowProgress: 10000,
+  mowingPercentage: 100,
+  mowingWeekArea: '1096.92',
+  subtotalArea: '362.91',
+  time: 1786447746312,
+  type: 2,
+};
+const LATE_ARRIVAL = {
+  action: -1,
+  currentMowProgress: 6213,
+  mowingPercentage: 62,
+  mowingWeekArea: '961.19',
+  subtotalArea: '227.18',
+  time: 1786441689297,
   type: 2,
 };
 
@@ -118,6 +140,34 @@ describe('mowing session detection', () => {
     send(fake, [{ ...FIRST_PERCENT, mowingPercentage: 58, subtotalArea: '244.2' }]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
     expect(fake.lastSubtotalArea[DEVICE]).to.equal(244.2);
+  });
+
+  it('ignores a progress sample the broker delivered late', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
+    });
+
+    send(fake, [SESSION_DONE]);
+    send(fake, [LATE_ARRIVAL]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
+    // Neither the percentage nor the area of the stale sample may be remembered - taking
+    // either would make the next real sample look like a restart in its own right.
+    expect(fake.lastMowingPercentage[DEVICE]).to.equal(100);
+    expect(fake.lastSubtotalArea[DEVICE]).to.equal(362.91);
+  });
+
+  it('does not let positions push the mark past a progress still on its way', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
+      lastSubtotalArea: { [DEVICE]: 362.91 },
+      lastMowingPercentage: { [DEVICE]: 100 },
+      lastProgressAt: { [DEVICE]: SESSION_DONE.time },
+    });
+
+    // A position from after the progress below, arriving before it - routine in this stream.
+    send(fake, [{ postureX: '1.0', postureY: '1.0', time: SESSION_DONE.time + 4000, type: 1 }]);
+    send(fake, [{ mowingPercentage: 0, subtotalArea: '0.0', time: SESSION_DONE.time + 2000, type: 2 }]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
   });
 
   it('ignores a fall too small to be a new session', () => {
