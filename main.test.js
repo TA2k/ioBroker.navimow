@@ -314,6 +314,43 @@ describe('poll with no devices known', () => {
   });
 });
 
+describe('token refresh retry', () => {
+  /**
+   * @returns {any} an adapter carrying the retry and a setTimeout that only records
+   */
+  function refreshing() {
+    return Object.assign(Object.create(Navimow.prototype), {
+      log: { debug() {}, info() {}, warn() {}, error() {} },
+      tokenRefreshFailures: 0,
+      refreshTokenTimeout: null,
+      cleared: 0,
+      waits: /** @type {number[]} */ ([]),
+      setTimeout(/** @type {Function} */ _fn, /** @type {number} */ ms) {
+        this.waits.push(ms);
+        return { armed: ms };
+      },
+      clearTimeout() {
+        this.cleared++;
+      },
+    });
+  }
+
+  it('waits longer the more refreshes have failed, and stops growing at the last step', () => {
+    const fake = refreshing();
+    for (let i = 0; i < 6; i++) fake.scheduleTokenRefreshRetry();
+    expect(fake.waits).to.deep.equal([60_000, 300_000, 900_000, 3_600_000, 3_600_000, 3_600_000]);
+  });
+
+  it('drops the pending attempt before arming the next, so the chain stays one timer', () => {
+    const fake = refreshing();
+    fake.scheduleTokenRefreshRetry();
+    fake.scheduleTokenRefreshRetry();
+    // Nothing to clear on the first call, one to clear on the second.
+    expect(fake.cleared).to.equal(1);
+    expect(fake.refreshTokenTimeout).to.deep.equal({ armed: 300_000 });
+  });
+});
+
 describe('MQTT credential refresh on close', () => {
   /**
    * @param {object} [seed] the adapter state the close handler would read

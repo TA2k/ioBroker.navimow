@@ -40,6 +40,12 @@ const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 // rather than retrying for ever on credentials that cannot work.
 const MQTT_CREDENTIAL_REFRESH_MIN_MS = 10 * 60 * 1000;
 
+// How long a failed token refresh waits before trying again, growing with the number of
+// failures behind it. The first is soon, because a refresh window missed over a short network
+// outage is the common case; the last is an hour, because a refresh token that has really
+// expired needs a re-login and nothing here will change that.
+const TOKEN_REFRESH_RETRY_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
+
 // States that end a mowing session. Only used as a fallback for mowers that never report a
 // mowing progress with their positions - where they do, the progress decides, because a mower
 // that docks halfway through to charge and drives back out is indistinguishable from one
@@ -241,6 +247,7 @@ class Navimow extends utils.Adapter {
     this.mqttRefreshing = false;
     this.mqttErrorCount = 0;
     this.lastMqttCredentialRefresh = 0;
+    this.tokenRefreshFailures = 0;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
     this.lastLocationRecovery = {};
@@ -1745,6 +1752,7 @@ class Navimow extends utils.Adapter {
     const tokenData = await this.refreshToken(this.session.refresh_token);
     if (tokenData) {
       await this.storeToken(tokenData);
+      this.tokenRefreshFailures = 0;
       this.log.info('Token refreshed successfully');
       // Reconnect MQTT with new token
       this.log.debug('Reconnecting MQTT with new token...');
@@ -1761,7 +1769,25 @@ class Navimow extends utils.Adapter {
     } else {
       this.log.error('Token refresh failed. Please re-login via settings.');
       this.setState('info.connection', false, true);
+      // What keeps this adapter authenticated is this timer rescheduling itself. Dropping it
+      // on a failure meant no further attempt ever: the access token then ran out and the
+      // adapter stayed offline until someone restarted it by hand, and a network outage over
+      // one refresh window was enough to get there.
+      this.scheduleTokenRefreshRetry();
     }
+  }
+
+  /**
+   * Arm the next attempt after a refresh that failed, waiting longer the more have failed in
+   * a row. Any pending one is dropped first, so the chain stays a chain rather than becoming
+   * two timers refreshing against each other.
+   */
+  scheduleTokenRefreshRetry() {
+    const wait = TOKEN_REFRESH_RETRY_MS[Math.min(this.tokenRefreshFailures, TOKEN_REFRESH_RETRY_MS.length - 1)];
+    this.tokenRefreshFailures++;
+    this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
+    this.log.info(`Trying the token refresh again in ${Math.round(wait / 60000)} minute(s)`);
+    this.refreshTokenTimeout = this.setTimeout(() => this.handleTokenRefresh(), wait);
   }
 
   // ---- REST API ----
