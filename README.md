@@ -272,6 +272,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Keep the first minute of a new session, which the mower still reports as the one before (#23)
 - (typhosj) Keep the whole session in the track rather than its last 5000 positions, so the beginning no longer disappears off the map while the mower is still out (#7)
 - (typhosj) Track colour, opacity and width can be set, so the map can be laid over a picture of the garden (#7)
+- (typhosj) Stop the disconnect watchdog from asking for a timer while the adapter is shutting down, which only earned a warning in the log
 - (typhosj) Publish the mower state from the MQTT state channel instead of the lagging HTTP cache
 - (typhosj) Refresh the status over HTTP when MQTT goes quiet in MQTT-only mode (#18)
 - (TA2k) Retry the MQTT connection after a transient credential failure (#18)

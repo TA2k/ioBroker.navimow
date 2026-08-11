@@ -229,6 +229,7 @@ class Navimow extends utils.Adapter {
     this.httpPollRunning = false;
     this.httpPollStartedAt = 0;
     this.httpPollToken = 0;
+    this.unloading = false;
   }
 
   async onReady() {
@@ -1104,7 +1105,13 @@ class Navimow extends utils.Adapter {
       };
       client.once('close', finish);
       client.end(true, finish);
-      timeoutHandle = this.setTimeout(finish, 2000);
+      // Not while unloading: the adapter refuses new timers then and says so in the log, and
+      // there is nothing for this one to rescue anyway - onUnload fires the disconnect and
+      // moves on without waiting for it. Everywhere else it bounds a reconnect that would
+      // otherwise hang on a broker that never answers the close.
+      if (!this.unloading) {
+        timeoutHandle = this.setTimeout(finish, 2000);
+      }
     }));
   }
 
@@ -1985,6 +1992,7 @@ class Navimow extends utils.Adapter {
   async onUnload(callback) {
     try {
       this.log.debug('Adapter unloading, cleaning up...');
+      this.unloading = true;
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
       this.updateInterval && this.clearInterval(this.updateInterval);
