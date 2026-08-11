@@ -2085,6 +2085,8 @@ class Navimow extends utils.Adapter {
 
 if (require.main !== module) {
   module.exports = (options) => new Navimow(options);
+  // The class itself, so a test can drive a single method without an adapter instance.
+  module.exports.Navimow = Navimow;
 } else {
   new Navimow();
 }
