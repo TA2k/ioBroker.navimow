@@ -68,13 +68,18 @@ const MAP_SIZE_PX = 800;
 // The frame is widened this far past the point that triggered it and snapped to whole metres,
 // so it jumps ahead of the mower and settles instead of nudging on every location message.
 const MAP_FRAME_MARGIN_M = 2;
-// How often at most the map is drawn while positions keep arriving. The mower reports every
-// couple of seconds and a render of a session-length track costs about 80 ms of blocked event
-// loop plus a 65 KiB state write - the same loop that takes the MQTT messages, so drawing every
-// position taxes the data the map is made of. At half a metre per second the picture is at most
-// a metre and a half behind, and the renders that matter - a docking, a reset, a station moved
-// by hand - go straight through without waiting.
-const MAP_RENDER_MIN_MS = 5 * 1000;
+// How often at most the map is drawn while positions keep arriving, in seconds, and the range
+// the setting may move it in. The mower reports every couple of seconds and a render of a
+// session-length track costs about 80 ms of blocked event loop plus a 65 KiB state write - the
+// same loop that takes the MQTT messages, so drawing every position taxes the data the map is
+// made of. Where that cost lands is a matter of garden and hardware, which is why it can be
+// set: at three seconds the picture is at most a metre and a half behind at half a metre per
+// second, a Pi with a large lawn is better off higher, and a map watched live is smoothest at
+// the two seconds the positions themselves arrive in. The renders that matter - a docking, a
+// reset, a station moved by hand - go straight through without waiting either way.
+const MAP_RENDER_DEFAULT_S = 3;
+const MAP_RENDER_MIN_S = 1;
+const MAP_RENDER_MAX_S = 30;
 // A mower drives well under a metre per second and reports its position every couple of
 // seconds, so a step this large is not driving. It is either a stray position, or the mower
 // really is somewhere else - the next message decides which.
@@ -811,15 +816,13 @@ class Navimow extends utils.Adapter {
         if (collected[collected.length - 1] !== prevLast) {
           const now = Date.now();
           const last = this.lastMapRender[deviceId] || 0;
-          if (now - last >= MAP_RENDER_MIN_MS) {
+          const minMs = this.mapRenderMinMs();
+          if (now - last >= minMs) {
             this.renderMapNow(deviceId);
           } else if (!this.mapRenderTimeout[deviceId]) {
             // Trailing edge: the positions arriving until then are all in the track already, so
             // the one render that follows shows every one of them.
-            this.mapRenderTimeout[deviceId] = this.setTimeout(
-              () => this.renderMapNow(deviceId),
-              MAP_RENDER_MIN_MS - (now - last),
-            );
+            this.mapRenderTimeout[deviceId] = this.setTimeout(() => this.renderMapNow(deviceId), minMs - (now - last));
           }
         }
       }
@@ -866,6 +869,19 @@ class Navimow extends utils.Adapter {
     for (const cmd of Object.keys(COMMAND_MAP)) {
       this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
     }
+  }
+
+  /**
+   * How long a position may wait for its render. Checked here rather than trusted from the UI:
+   * the value can also come from a script or a hand-edited instance object, and a zero would
+   * draw on every message while a negative one would arm timers into the past.
+   *
+   * @returns {number} milliseconds
+   */
+  mapRenderMinMs() {
+    const seconds = Number(this.config.mapRenderInterval);
+    const valid = seconds >= MAP_RENDER_MIN_S && seconds <= MAP_RENDER_MAX_S;
+    return (valid ? seconds : MAP_RENDER_DEFAULT_S) * 1000;
   }
 
   /**

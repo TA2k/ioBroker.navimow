@@ -120,7 +120,8 @@
     "mapLineOpacity": 1,
     "mapLineWidth": 1.5,
     "mapMarker": "dot",
-    "mapMarkerSize": 10
+    "mapMarkerSize": 10,
+    "mapRenderInterval": 3
   },
   "objects": [],
   "instanceObjects": [

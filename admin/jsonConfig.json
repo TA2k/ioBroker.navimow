@@ -147,6 +147,22 @@
         "en": "The mower needs about 16 to 24 px to be recognisable as one.",
         "de": "Der Mäher braucht etwa 16 bis 24 px, um als solcher erkennbar zu sein."
       }
+    },
+    "mapRenderInterval": {
+      "type": "number",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "newLine": true,
+      "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
+      "label": {
+        "en": "Redraw at most every (s)",
+        "de": "Neu zeichnen höchstens alle (s)"
+      },
+      "help": {
+        "en": "Drawing the map costs about 80 ms and a 65 KiB state write, which is why it does not follow every position. The default of 3 keeps the picture within about a metre and a half of the mower. 2 is the smoothest the mower reports and the most expensive; a weak host or a large lawn is better off higher.",
+        "de": "Das Zeichnen der Karte kostet etwa 80 ms und einen 65 KiB großen State-Schreibvorgang, deshalb folgt es nicht jeder Position. Der Standardwert 3 hält das Bild etwa anderthalb Meter hinter dem Mäher. 2 ist das Flüssigste, was der Mäher meldet, und das Teuerste; auf schwacher Hardware oder bei großem Rasen höher setzen."
+      }
     }
   }
 }
