@@ -385,3 +385,31 @@ describe('MQTT credential refresh on close', () => {
     expect(fake.shouldRefreshMqttCredentials(true)).to.equal(false);
   });
 });
+
+// Last on purpose: the adapter remembers the outcome of loading the canvas library, so making
+// it fail here would make it fail for every test after this one. Nothing else renders.
+describe('a host without the canvas library', () => {
+  it('leaves the adapter running and says so once', () => {
+    const warnings = [];
+    const fake = Object.assign(Object.create(Navimow.prototype), {
+      log: { debug() {}, info() {}, warn: (/** @type {string} */ m) => warnings.push(m), error() {} },
+      locationHistory: { [DEVICE]: [{ x: 0, y: 0 }, { x: 1, y: 1 }] },
+      canvasWarned: false,
+    });
+
+    const failing = Module._load;
+    Module._load = function (/** @type {string} */ request, /** @type {any[]} */ ...rest) {
+      if (request === '@napi-rs/canvas') throw new Error('no prebuild for this platform');
+      return failing.call(this, request, ...rest);
+    };
+    try {
+      fake.renderMap(DEVICE);
+      fake.renderMap(DEVICE);
+    } finally {
+      Module._load = failing;
+    }
+
+    expect(warnings).to.have.lengthOf(1);
+    expect(warnings[0]).to.contain('no prebuild for this platform');
+  });
+});

@@ -6,7 +6,6 @@ const Json2iob = require('json2iob');
 const crypto = require('node:crypto');
 const mqtt = require('mqtt');
 const { URL } = require('node:url');
-const { createCanvas } = require('@napi-rs/canvas');
 const descriptions = require('./lib/descriptions.json');
 const states = require('./lib/states.json');
 
@@ -140,6 +139,31 @@ const COMMAND_MAP = {
  * @param {unknown} postureTheta the heading as it arrived, in radians
  * @returns {{x:number,y:number,theta?:number}} the position to keep
  */
+/** @type {{ createCanvas?: Function, error?: string } | null} */
+let canvasModule = null;
+
+/**
+ * The canvas library, loaded on first use rather than with this file. It ships a native binary
+ * and there is no prebuild for every platform an ioBroker runs on - armv6, so a Pi Zero or a
+ * Pi 1, has none. Required at the top it took the whole adapter down with it on such a host:
+ * no status, no remote control, over a picture. Now the map is what fails.
+ *
+ * The outcome is remembered either way, so a host without it does not attempt the require on
+ * every render, and the warning is said once rather than every few seconds.
+ *
+ * @returns {{ createCanvas?: Function, error?: string }} the library, or why there is none
+ */
+function loadCanvas() {
+  if (!canvasModule) {
+    try {
+      canvasModule = { createCanvas: require('@napi-rs/canvas').createCanvas };
+    } catch (e) {
+      canvasModule = { error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  return canvasModule;
+}
+
 /**
  * A number, but only from something that was meant as one. `Number()` alone answers 0 for
  * null, for an empty string, for false and for an empty array, so a position missing half its
@@ -248,6 +272,7 @@ class Navimow extends utils.Adapter {
     this.mqttErrorCount = 0;
     this.lastMqttCredentialRefresh = 0;
     this.tokenRefreshFailures = 0;
+    this.canvasWarned = false;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
     this.lastLocationRecovery = {};
@@ -977,6 +1002,20 @@ class Navimow extends utils.Adapter {
   renderMap(deviceId) {
     const points = this.locationHistory[deviceId]?.slice();
     if (!points || points.length < 2) return;
+    const canvasLib = loadCanvas();
+    if (!canvasLib.createCanvas) {
+      // Once: the alternative is this line every few seconds for as long as the mower drives,
+      // and nothing about it changes in between.
+      if (!this.canvasWarned) {
+        this.canvasWarned = true;
+        this.log.warn(
+          `The mowing map needs @napi-rs/canvas, which will not load here: ${canvasLib.error}. ` +
+            'Everything else keeps working - the map is the only thing that stays empty.',
+        );
+      }
+      return;
+    }
+    const createCanvas = /** @type {Function} */ (canvasLib.createCanvas);
     this.log.debug(`Rendering map for ${deviceId}: ${points.length} points`);
 
     // The charging station is grown into the frame as well, so it cannot end up outside the
