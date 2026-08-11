@@ -34,6 +34,12 @@ const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMa
 // in between cannot put an older state back on display.
 const STATE_CHANNEL_TRUST_MS = 3 * 60 * 1000;
 
+// How long a connect attempt that never succeeded waits before it is worth fetching MQTT
+// credentials again. Long enough that a broker refusing connections cannot turn into a stream
+// of OAuth calls, short enough that an adapter started on an expired token recovers by itself
+// rather than retrying for ever on credentials that cannot work.
+const MQTT_CREDENTIAL_REFRESH_MIN_MS = 10 * 60 * 1000;
+
 // States that end a mowing session. Only used as a fallback for mowers that never report a
 // mowing progress with their positions - where they do, the progress decides, because a mower
 // that docks halfway through to charge and drives back out is indistinguishable from one
@@ -234,6 +240,7 @@ class Navimow extends utils.Adapter {
     this.mqttConnected = false;
     this.mqttRefreshing = false;
     this.mqttErrorCount = 0;
+    this.lastMqttCredentialRefresh = 0;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
     this.lastLocationRecovery = {};
@@ -546,11 +553,12 @@ class Navimow extends utils.Adapter {
           if (this.mqttClient !== mqttClient) {
             return;
           }
-          if (this.mqttConnected) {
+          const wasConnected = this.mqttConnected;
+          this.mqttConnected = false;
+          if (wasConnected) {
             this.log.info('MQTT connection closed');
           }
-          this.mqttConnected = false;
-          if (!this.mqttRefreshing) {
+          if (this.shouldRefreshMqttCredentials(wasConnected)) {
             this.refreshMqttCredentials();
           }
         });
@@ -1589,9 +1597,34 @@ class Navimow extends utils.Adapter {
     }
   }
 
+  /**
+   * Whether a closed MQTT connection is worth fetching credentials for. 'close' says two
+   * different things. A connection that was up and went down is answered at once: the broker
+   * credentials are bound to the OAuth token, and a rotation is the usual reason it dropped.
+   *
+   * A connect attempt that never succeeded is not. mqtt.js is already retrying on its own
+   * reconnectPeriod, and the refresh that used to fire for it cost an OAuth call per attempt
+   * with a token seconds old - three of them in 31 seconds in one recorded case, none of which
+   * shortened the gap. It is not dropped altogether, though: nothing else fetches credentials
+   * for a client that has never come up, so an adapter started on an expired token would
+   * retry for ever on credentials that cannot work. It is throttled instead.
+   *
+   * @param {boolean} wasConnected whether the connection had come up before it closed
+   * @returns {boolean}
+   */
+  shouldRefreshMqttCredentials(wasConnected) {
+    if (this.mqttRefreshing) return false;
+    if (wasConnected) return true;
+    return Date.now() - (this.lastMqttCredentialRefresh || 0) > MQTT_CREDENTIAL_REFRESH_MIN_MS;
+  }
+
   async refreshMqttCredentials() {
     if (this.mqttRefreshing) return;
     this.mqttRefreshing = true;
+    // Stamped where every path through it passes, so the throttle on the close handler sees
+    // the attempt whether it succeeded or not - a refresh that keeps failing must not be
+    // retried per connect attempt any more than a successful one.
+    this.lastMqttCredentialRefresh = Date.now();
     try {
       // Refresh OAuth token first (MQTT credentials are bound to it)
       if (this.session.refresh_token) {

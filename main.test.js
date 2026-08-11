@@ -250,3 +250,38 @@ describe('mowing session detection', () => {
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
   });
 });
+
+describe('MQTT credential refresh on close', () => {
+  /**
+   * @param {object} [seed] the adapter state the close handler would read
+   * @returns {any} an object carrying just the method under test
+   */
+  function closing(seed = {}) {
+    return Object.assign(Object.create(Navimow.prototype), {
+      mqttRefreshing: false,
+      lastMqttCredentialRefresh: 0,
+      ...seed,
+    });
+  }
+
+  it('refreshes at once when a connection that was up goes down', () => {
+    // Even right after a refresh: a rotated token is the usual reason it dropped.
+    const fake = closing({ lastMqttCredentialRefresh: Date.now() });
+    expect(fake.shouldRefreshMqttCredentials(true)).to.equal(true);
+  });
+
+  it('does not refresh per attempt while a connect keeps failing', () => {
+    const fake = closing({ lastMqttCredentialRefresh: Date.now() - 1000 });
+    expect(fake.shouldRefreshMqttCredentials(false)).to.equal(false);
+  });
+
+  it('still refreshes eventually, so an expired token is not retried for ever', () => {
+    const fake = closing({ lastMqttCredentialRefresh: Date.now() - 11 * 60 * 1000 });
+    expect(fake.shouldRefreshMqttCredentials(false)).to.equal(true);
+  });
+
+  it('never starts a second refresh on top of one already running', () => {
+    const fake = closing({ mqttRefreshing: true });
+    expect(fake.shouldRefreshMqttCredentials(true)).to.equal(false);
+  });
+});
