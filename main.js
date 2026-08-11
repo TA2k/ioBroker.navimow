@@ -673,7 +673,10 @@ class Navimow extends utils.Adapter {
             points = points.slice(resetAt);
           }
         } else if (reported) {
-          const stale = pendingStart ? ', still the one of the session before?' : '';
+          // Only while the question is still open. A progress that rose above the last one has
+          // just answered it - the mower is carrying on with the session it went to charge
+          // from - and calling that reading stale says the opposite of what was decided.
+          const stale = pendingStart && !decided ? ', still the one of the session before?' : '';
           this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${stale}`);
         }
         if (decided) {
