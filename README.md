@@ -279,6 +279,8 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Clear the map on the mowed area falling back to zero, which the mower reports minutes before the mowing progress catches up (#23)
 - (typhosj) Ignore a mowing progress the broker delivers late, which read as a new session and cleared the map of one that had just finished (#23)
 - (typhosj) Ignore every late location reading, not only the mowing progress, so an overtaken position no longer reaches the track or the states either (#23)
+- (typhosj) Subscribe every MQTT channel once instead of twice, so each message is parsed and stored once
+- (typhosj) Keep the mower state value list off `location.vehicleState`, which is a number and can never take any of them
 - (typhosj) Keep the whole session in the track rather than its last 5000 positions, so the beginning no longer disappears off the map while the mower is still out (#7)
 - (typhosj) Track colour, opacity and width can be set, so the map can be laid over a picture of the garden (#7)
 - (typhosj) Draw the map at most every `mapRenderInterval` seconds instead of on every position, so a session no longer spends minutes of event loop and state writes on pictures nobody sees (#7)
