@@ -2044,6 +2044,20 @@ class Navimow extends utils.Adapter {
     }
     try {
       this.log.debug(reason === 'interval' ? 'Running periodic HTTP status poll' : 'Running HTTP status poll (' + reason + ')');
+      // Discovery failing at startup - ioBroker up before the network is - used to leave the
+      // adapter idle for good: an empty device list makes updateDevices and connectMqtt both
+      // return at once, and nothing ever looked again. The poll is the retry, so this needs no
+      // timer of its own. It runs on the configured interval, and where polling is switched
+      // off the stale-status check drives it instead.
+      if (!this.deviceArray.length) {
+        this.log.debug('No devices known, looking again before polling');
+        await this.getDeviceList();
+        // Only once devices are known is there anything to subscribe to, and only without a
+        // client already built: connectMqtt makes a new one every time it is called.
+        if (this.deviceArray.length && !this.mqttClient) {
+          await this.connectMqtt();
+        }
+      }
       await this.updateDevices();
     } catch (error) {
       this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));

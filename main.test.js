@@ -251,6 +251,69 @@ describe('mowing session detection', () => {
   });
 });
 
+describe('poll with no devices known', () => {
+  /**
+   * @param {object} [seed] what the poll finds when it runs
+   * @returns {any} an adapter carrying the poll and stubs for what it reaches out to
+   */
+  function polling(seed = {}) {
+    const fake = Object.assign(Object.create(Navimow.prototype), {
+      log: { debug() {}, info() {}, warn() {}, error() {} },
+      deviceArray: [],
+      mqttClient: null,
+      httpPollRunning: false,
+      httpPollStartedAt: 0,
+      httpPollToken: 0,
+      calls: [],
+      getDeviceList() {
+        fake.calls.push('getDeviceList');
+        return Promise.resolve();
+      },
+      connectMqtt() {
+        fake.calls.push('connectMqtt');
+        return Promise.resolve();
+      },
+      updateDevices() {
+        fake.calls.push('updateDevices');
+        return Promise.resolve();
+      },
+    });
+    return Object.assign(fake, seed);
+  }
+
+  it('looks for devices again, so a failed discovery is not the end of it', async () => {
+    const fake = polling();
+    // The network is there this time.
+    fake.getDeviceList = () => {
+      fake.calls.push('getDeviceList');
+      fake.deviceArray = ['21EAA2615Y2474'];
+      return Promise.resolve();
+    };
+
+    await fake.pollDevices('interval');
+    expect(fake.calls).to.deep.equal(['getDeviceList', 'connectMqtt', 'updateDevices']);
+  });
+
+  it('does not build a second MQTT client when one is already there', async () => {
+    const fake = polling({ mqttClient: {} });
+    fake.getDeviceList = () => {
+      fake.calls.push('getDeviceList');
+      fake.deviceArray = ['21EAA2615Y2474'];
+      return Promise.resolve();
+    };
+
+    await fake.pollDevices('interval');
+    expect(fake.calls).to.deep.equal(['getDeviceList', 'updateDevices']);
+  });
+
+  it('leaves a poll that knows its devices alone', async () => {
+    const fake = polling({ deviceArray: ['21EAA2615Y2474'] });
+
+    await fake.pollDevices('interval');
+    expect(fake.calls).to.deep.equal(['updateDevices']);
+  });
+});
+
 describe('MQTT credential refresh on close', () => {
   /**
    * @param {object} [seed] the adapter state the close handler would read

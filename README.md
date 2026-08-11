@@ -282,6 +282,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Subscribe every MQTT channel once instead of twice, so each message is parsed and stored once
 - (typhosj) Keep the mower state value list off `location.vehicleState`, which is a number and can never take any of them
 - (typhosj) Stop refreshing the OAuth token once per failed MQTT connect attempt, without giving up the refresh that recovers an expired one
+- (typhosj) Look for devices again on every poll, so a discovery that failed at startup no longer leaves the adapter idle until it is restarted by hand
 - (typhosj) Keep the whole session in the track rather than its last 5000 positions, so the beginning no longer disappears off the map while the mower is still out (#7)
 - (typhosj) Track colour, opacity and width can be set, so the map can be laid over a picture of the garden (#7)
 - (typhosj) Draw the map at most every `mapRenderInterval` seconds instead of on every position, so a session no longer spends minutes of event loop and state writes on pictures nobody sees (#7)
