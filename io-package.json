@@ -116,6 +116,7 @@
   "native": {
     "authCode": "",
     "interval": 5,
+    "mapEnabled": false,
     "mapLineColor": "",
     "mapLineOpacity": 1,
     "mapLineWidth": 1.5,

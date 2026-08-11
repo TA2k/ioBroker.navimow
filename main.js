@@ -719,205 +719,11 @@ class Navimow extends utils.Adapter {
         points = points.filter((p) => this.isFreshLocationReading(deviceId, p));
         if (!points.length) return;
 
-        // Decide whether this is still the same mowing session, before the new points are
-        // collected. The mowing progress is the only signal that tells a new session from a
-        // continuation: it starts over at zero for a new one and picks up where it left off
-        // when the mower carries on after a charging break.
-        //
-        // Every point of the payload is looked at, not only the first one carrying a progress:
-        // a single message can hold the end of one session and the start of the next
-        // ([80 %, 0 %]), and stopping at the first would take the oldest sample for the truth
-        // and miss the boundary. The newest restart in the batch wins, and the points ahead of
-        // it belong to the session that just ended, so they go with it.
-        //
-        // The progress is late, though: for minutes after leaving the dock the mower still
-        // reports the one of the session before - it only ticks once a whole percent is done,
-        // which on a large lawn is several minutes. `sessionStart` holds where the track stood
-        // when it left, set on the state change, so the positions driven until then survive the
-        // reset the progress asks for once it catches up.
-        //
-        // `subtotalArea` says the same thing in square metres, and it is the field the mower
-        // zeroes the moment it takes on a new task: the message announcing the start carries
-        // "0.0" square metres next to the stale 100 % of the session before. So the area is
-        // asked first and answers minutes earlier; the percentage stays as the second witness,
-        // for the mowers or firmwares that send no area at all.
-        //
-        // The two are not one quantity rescaled, measured over one session: 4.21 m² at 1.04 %
-        // puts the lawn at 405 m², 224.15 m² at 61.01 % puts it at 367 m². The percentage
-        // follows the planned path, the area follows the ground covered. What the area is, is
-        // an accumulator: over the same session it tracked the rise in `mowingWeekArea` to
-        // within 0.05 m² (734.08 -> 958.18 against 0.0 -> 224.15), a charging break in the
-        // middle included.
-        //
-        // What does not tell the two apart is the message itself: `action: -1` and a
-        // `mapWorkPosition` starting FFFFFFFF ride on the announcement of a new task and on
-        // the first message after a charging break alike. Only the numbers decide.
-        const pendingStart = this.sessionStart[deviceId];
-        let resetAt = -1;
-        let resetReason = '';
-        // Whether the progress has said what the pending session start is: a restart answers
-        // "a new one", a rise above the last progress answers "the one it went to charge from".
-        let decided = false;
-        // Only a fraction of the location messages carry a progress at all - the mower sends
-        // its position every two seconds and the progress roughly once a percent, in a message
-        // of its own. Without this the value carried over from the last one would be reported
-        // and stored again with every position, as if the mower had just said it.
-        let reported = false;
-        let progress = this.lastMowingPercentage[deviceId];
-        let area = this.lastSubtotalArea[deviceId];
-        for (let i = 0; i < points.length; i++) {
-          const p = points[i];
-          if (!p) continue;
-          const percentage = Number(p.mowingPercentage);
-          const hasPercentage = p.mowingPercentage != null && Number.isFinite(percentage);
-          // An empty string is not a zero square metres, but Number('') is - and would read as
-          // a mower that has just started over. Only a value that says something counts.
-          const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
-          const hasArea = Number.isFinite(mowed);
-          if (!hasPercentage && !hasArea) continue;
-          if (hasPercentage) {
-            reported = true;
-            // A progress of zero only starts a session while there is nothing to compare it
-            // against. Once it is known, the drop is what counts: the mower reports zero from
-            // leaving the dock until the first percent is done, which on a large lawn is
-            // minutes of positions, and treating every one of them as a fresh start would
-            // throw the track away again with each message.
-            if (progress == null ? percentage === 0 : percentage < progress) {
-              resetAt = i;
-              resetReason = `mowing progress restarted (${progress ?? 'unknown'}% -> ${percentage}%)`;
-              decided = true;
-            } else if (progress != null && percentage > progress) {
-              decided = true;
-            }
-            progress = percentage;
-          }
-          if (hasArea) {
-            // Only a fall, never a zero on its own: the area stands at "0.0" for the whole
-            // first percent, so starting a session on the value rather than on the fall would
-            // clear the track again with every message of those minutes. A charging break does
-            // not fall: measured on 2026-08-11, the mower docked at 224.15 m² and came back
-            // out reporting 227.26 - what the area accumulates is the session's share of
-            // `mowingWeekArea`, and nothing resets a week counter for a charge.
-            if (area != null && mowed < area - MOWED_AREA_RESTART_DROP_M2) {
-              resetAt = i;
-              resetReason = `mowed area restarted (${area} m² -> ${mowed} m²)`;
-              decided = true;
-              // Read after the percentage of this very point, and deliberately overriding it:
-              // the area has already turned over while the percentage still reports the
-              // session before, and left standing that stale value would ask for a second
-              // reset minutes later, when the percentage finally falls too - throwing away
-              // the start of the new session that was just kept. Nothing is mowed yet, so
-              // zero is what the new session is actually at.
-              //
-              // It also settles the question the state change asks: a progress that is no
-              // longer null switches off the fallback that clears the map on leaving the dock,
-              // for good and even for a mower that never reports a percentage. That is the
-              // right answer - from here on the area says when a session starts.
-              progress = 0;
-              reported = true;
-            }
-            area = mowed;
-          }
-        }
-        if (pendingStart && !decided && Date.now() - pendingStart.at > SESSION_START_GRACE_MS) {
-          // The progress never spoke. Take it for a continuation - it is the answer that keeps
-          // the track - and stop holding the points of a session start that long ago, or a
-          // reset far in the future would spare everything driven since and never clear.
-          decided = true;
-          this.log.debug(`Giving up on the mowing progress for ${deviceId}, treating it as the same session`);
-        }
-        if (reported) {
-          // Set before the reset, so the track written out by it already carries the progress
-          // of the session that is starting.
-          this.lastMowingPercentage[deviceId] = progress;
-        }
-        if (area != null) {
-          this.lastSubtotalArea[deviceId] = area;
-        }
-        if (resetAt >= 0) {
-          this.resetMap(deviceId, resetReason, pendingStart?.index);
-          // Only without a pending session start do the points ahead of the restart belong to
-          // the session that ended. With one they were all driven after the mower left the
-          // dock, and the progress they carry is the stale one of the session before.
-          if (!pendingStart) {
-            points = points.slice(resetAt);
-          }
-        } else if (reported) {
-          // Only while the question is still open. A progress that rose above the last one has
-          // just answered it - the mower is carrying on with the session it went to charge
-          // from - and calling that reading stale says the opposite of what was decided.
-          const stale = pendingStart && !decided ? ', still the one of the session before?' : '';
-          this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${stale}`);
-        }
-        if (decided) {
-          delete this.sessionStart[deviceId];
-        }
-
-        if (!this.locationHistory[deviceId]) {
-          this.locationHistory[deviceId] = [];
-        }
-        const history = this.locationHistory[deviceId];
-        // The track changes without getting longer: a position on the line the map already
-        // draws replaces the one before it rather than joining it, and reaching the budget
-        // makes the track shorter. So what says the map is out of date is the last position
-        // itself - the same marker saveMapTrack uses, and for the same reason.
-        const prevLast = history[history.length - 1];
-        for (const p of points) {
-          if (p && p.postureX != null && p.postureY != null) {
-            const x = parseFloat(p.postureX);
-            const y = parseFloat(p.postureY);
-            // Infinity survives isNaN, and a frame grown to Infinity turns the canvas
-            // dimensions into NaN, which the native canvas answers with an abort of the
-            // whole process. Nothing but a finite coordinate is of any use here anyway.
-            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-            // The frame outlives a map reset, so the first position of a new session would
-            // widen it unchecked. lastLocation keeps the last accepted position across the
-            // reset, so the guard below covers that point too.
-            let last = history[history.length - 1] || this.lastLocation[deviceId];
-            // A single position far from the last one is not believed straight away. It
-            // would draw a spike across the map, and because the frame only ever grows it
-            // would widen the picture for good - a one-off stray reading would leave the
-            // real mowing squeezed into a corner for every session to come. The next
-            // message decides: if it lands near the held-back one, the mower really is
-            // somewhere else (back out of the dock, or the adapter restarted onto an older
-            // track) and both are taken. If not, the reading is dropped and never seen again.
-            if (last && Math.hypot(x - last.x, y - last.y) > LOCATION_JUMP_MAX_M) {
-              const pending = this.pendingLocation[deviceId];
-              if (!pending || Math.hypot(x - pending.x, y - pending.y) > LOCATION_JUMP_MAX_M) {
-                this.pendingLocation[deviceId] = trackPoint(x, y, p.postureTheta);
-                this.log.debug(
-                  `Holding back position x=${x} y=${y} for ${deviceId}: ` +
-                    `${Math.hypot(x - last.x, y - last.y).toFixed(1)} m from the last one`,
-                );
-                continue;
-              }
-              this.log.debug(`Position x=${x} y=${y} for ${deviceId} confirmed by a second message, taking it`);
-              this.pushTrackPoint(deviceId, pending);
-              // The confirmed one is now the last point, so an identical reading is not
-              // pushed a second time below.
-              last = pending;
-            }
-            this.pendingLocation[deviceId] = undefined;
-            if (!last || last.x !== x || last.y !== y) {
-              this.pushTrackPoint(deviceId, trackPoint(x, y, p.postureTheta));
-            }
-            this.lastLocation[deviceId] = { x, y };
-          }
-        }
-        // Re-read it: a compaction swaps the array out, so the one captured above may be the
-        // track as it stood before.
-        const collected = this.locationHistory[deviceId];
-        if (collected[collected.length - 1] !== prevLast) {
-          const now = Date.now();
-          const last = this.lastMapRender[deviceId] || 0;
-          const minMs = this.mapRenderMinMs();
-          if (now - last >= minMs) {
-            this.renderMapNow(deviceId);
-          } else if (!this.mapRenderTimeout[deviceId]) {
-            // Trailing edge: the positions arriving until then are all in the track already, so
-            // the one render that follows shows every one of them.
-            this.mapRenderTimeout[deviceId] = this.setTimeout(() => this.renderMapNow(deviceId), minMs - (now - last));
-          }
+        // The map is what all of this is for, and it is off unless it was asked for. The
+        // positions still reach the location states below; what is skipped is collecting
+        // them into a track, deciding sessions on them, and drawing.
+        if (this.config.mapEnabled) {
+          this.updateMowingMap(deviceId, points);
         }
       }
 
@@ -940,6 +746,217 @@ class Navimow extends utils.Adapter {
       });
     } catch (e) {
       this.log.error('MQTT message parse error: ' + e.message);
+    }
+  }
+
+
+  /**
+   * Collect the positions of one location message into the mowing track and draw it, having
+   * first decided whether they belong to the session already on the map or start a new one.
+   *
+   * @param {string} deviceId device
+   * @param {any[]} points the readings of the message, the overtaken ones already dropped
+   */
+  updateMowingMap(deviceId, points) {
+    // Decide whether this is still the same mowing session, before the new points are
+    // collected. The mowing progress is the only signal that tells a new session from a
+    // continuation: it starts over at zero for a new one and picks up where it left off
+    // when the mower carries on after a charging break.
+    //
+    // Every point of the payload is looked at, not only the first one carrying a progress:
+    // a single message can hold the end of one session and the start of the next
+    // ([80 %, 0 %]), and stopping at the first would take the oldest sample for the truth
+    // and miss the boundary. The newest restart in the batch wins, and the points ahead of
+    // it belong to the session that just ended, so they go with it.
+    //
+    // The progress is late, though: for minutes after leaving the dock the mower still
+    // reports the one of the session before - it only ticks once a whole percent is done,
+    // which on a large lawn is several minutes. `sessionStart` holds where the track stood
+    // when it left, set on the state change, so the positions driven until then survive the
+    // reset the progress asks for once it catches up.
+    //
+    // `subtotalArea` says the same thing in square metres, and it is the field the mower
+    // zeroes the moment it takes on a new task: the message announcing the start carries
+    // "0.0" square metres next to the stale 100 % of the session before. So the area is
+    // asked first and answers minutes earlier; the percentage stays as the second witness,
+    // for the mowers or firmwares that send no area at all.
+    //
+    // The two are not one quantity rescaled, measured over one session: 4.21 m² at 1.04 %
+    // puts the lawn at 405 m², 224.15 m² at 61.01 % puts it at 367 m². The percentage
+    // follows the planned path, the area follows the ground covered. What the area is, is
+    // an accumulator: over the same session it tracked the rise in `mowingWeekArea` to
+    // within 0.05 m² (734.08 -> 958.18 against 0.0 -> 224.15), a charging break in the
+    // middle included.
+    //
+    // What does not tell the two apart is the message itself: `action: -1` and a
+    // `mapWorkPosition` starting FFFFFFFF ride on the announcement of a new task and on
+    // the first message after a charging break alike. Only the numbers decide.
+    const pendingStart = this.sessionStart[deviceId];
+    let resetAt = -1;
+    let resetReason = '';
+    // Whether the progress has said what the pending session start is: a restart answers
+    // "a new one", a rise above the last progress answers "the one it went to charge from".
+    let decided = false;
+    // Only a fraction of the location messages carry a progress at all - the mower sends
+    // its position every two seconds and the progress roughly once a percent, in a message
+    // of its own. Without this the value carried over from the last one would be reported
+    // and stored again with every position, as if the mower had just said it.
+    let reported = false;
+    let progress = this.lastMowingPercentage[deviceId];
+    let area = this.lastSubtotalArea[deviceId];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (!p) continue;
+      const percentage = Number(p.mowingPercentage);
+      const hasPercentage = p.mowingPercentage != null && Number.isFinite(percentage);
+      // An empty string is not a zero square metres, but Number('') is - and would read as
+      // a mower that has just started over. Only a value that says something counts.
+      const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
+      const hasArea = Number.isFinite(mowed);
+      if (!hasPercentage && !hasArea) continue;
+      if (hasPercentage) {
+        reported = true;
+        // A progress of zero only starts a session while there is nothing to compare it
+        // against. Once it is known, the drop is what counts: the mower reports zero from
+        // leaving the dock until the first percent is done, which on a large lawn is
+        // minutes of positions, and treating every one of them as a fresh start would
+        // throw the track away again with each message.
+        if (progress == null ? percentage === 0 : percentage < progress) {
+          resetAt = i;
+          resetReason = `mowing progress restarted (${progress ?? 'unknown'}% -> ${percentage}%)`;
+          decided = true;
+        } else if (progress != null && percentage > progress) {
+          decided = true;
+        }
+        progress = percentage;
+      }
+      if (hasArea) {
+        // Only a fall, never a zero on its own: the area stands at "0.0" for the whole
+        // first percent, so starting a session on the value rather than on the fall would
+        // clear the track again with every message of those minutes. A charging break does
+        // not fall: measured on 2026-08-11, the mower docked at 224.15 m² and came back
+        // out reporting 227.26 - what the area accumulates is the session's share of
+        // `mowingWeekArea`, and nothing resets a week counter for a charge.
+        if (area != null && mowed < area - MOWED_AREA_RESTART_DROP_M2) {
+          resetAt = i;
+          resetReason = `mowed area restarted (${area} m² -> ${mowed} m²)`;
+          decided = true;
+          // Read after the percentage of this very point, and deliberately overriding it:
+          // the area has already turned over while the percentage still reports the
+          // session before, and left standing that stale value would ask for a second
+          // reset minutes later, when the percentage finally falls too - throwing away
+          // the start of the new session that was just kept. Nothing is mowed yet, so
+          // zero is what the new session is actually at.
+          //
+          // It also settles the question the state change asks: a progress that is no
+          // longer null switches off the fallback that clears the map on leaving the dock,
+          // for good and even for a mower that never reports a percentage. That is the
+          // right answer - from here on the area says when a session starts.
+          progress = 0;
+          reported = true;
+        }
+        area = mowed;
+      }
+    }
+    if (pendingStart && !decided && Date.now() - pendingStart.at > SESSION_START_GRACE_MS) {
+      // The progress never spoke. Take it for a continuation - it is the answer that keeps
+      // the track - and stop holding the points of a session start that long ago, or a
+      // reset far in the future would spare everything driven since and never clear.
+      decided = true;
+      this.log.debug(`Giving up on the mowing progress for ${deviceId}, treating it as the same session`);
+    }
+    if (reported) {
+      // Set before the reset, so the track written out by it already carries the progress
+      // of the session that is starting.
+      this.lastMowingPercentage[deviceId] = progress;
+    }
+    if (area != null) {
+      this.lastSubtotalArea[deviceId] = area;
+    }
+    if (resetAt >= 0) {
+      this.resetMap(deviceId, resetReason, pendingStart?.index);
+      // Only without a pending session start do the points ahead of the restart belong to
+      // the session that ended. With one they were all driven after the mower left the
+      // dock, and the progress they carry is the stale one of the session before.
+      if (!pendingStart) {
+        points = points.slice(resetAt);
+      }
+    } else if (reported) {
+      // Only while the question is still open. A progress that rose above the last one has
+      // just answered it - the mower is carrying on with the session it went to charge
+      // from - and calling that reading stale says the opposite of what was decided.
+      const stale = pendingStart && !decided ? ', still the one of the session before?' : '';
+      this.log.debug(`Mowing progress for ${deviceId}: ${progress}%${stale}`);
+    }
+    if (decided) {
+      delete this.sessionStart[deviceId];
+    }
+
+    if (!this.locationHistory[deviceId]) {
+      this.locationHistory[deviceId] = [];
+    }
+    const history = this.locationHistory[deviceId];
+    // The track changes without getting longer: a position on the line the map already
+    // draws replaces the one before it rather than joining it, and reaching the budget
+    // makes the track shorter. So what says the map is out of date is the last position
+    // itself - the same marker saveMapTrack uses, and for the same reason.
+    const prevLast = history[history.length - 1];
+    for (const p of points) {
+      if (p && p.postureX != null && p.postureY != null) {
+        const x = parseFloat(p.postureX);
+        const y = parseFloat(p.postureY);
+        // Infinity survives isNaN, and a frame grown to Infinity turns the canvas
+        // dimensions into NaN, which the native canvas answers with an abort of the
+        // whole process. Nothing but a finite coordinate is of any use here anyway.
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        // The frame outlives a map reset, so the first position of a new session would
+        // widen it unchecked. lastLocation keeps the last accepted position across the
+        // reset, so the guard below covers that point too.
+        let last = history[history.length - 1] || this.lastLocation[deviceId];
+        // A single position far from the last one is not believed straight away. It
+        // would draw a spike across the map, and because the frame only ever grows it
+        // would widen the picture for good - a one-off stray reading would leave the
+        // real mowing squeezed into a corner for every session to come. The next
+        // message decides: if it lands near the held-back one, the mower really is
+        // somewhere else (back out of the dock, or the adapter restarted onto an older
+        // track) and both are taken. If not, the reading is dropped and never seen again.
+        if (last && Math.hypot(x - last.x, y - last.y) > LOCATION_JUMP_MAX_M) {
+          const pending = this.pendingLocation[deviceId];
+          if (!pending || Math.hypot(x - pending.x, y - pending.y) > LOCATION_JUMP_MAX_M) {
+            this.pendingLocation[deviceId] = trackPoint(x, y, p.postureTheta);
+            this.log.debug(
+              `Holding back position x=${x} y=${y} for ${deviceId}: ` +
+                  `${Math.hypot(x - last.x, y - last.y).toFixed(1)} m from the last one`,
+            );
+            continue;
+          }
+          this.log.debug(`Position x=${x} y=${y} for ${deviceId} confirmed by a second message, taking it`);
+          this.pushTrackPoint(deviceId, pending);
+          // The confirmed one is now the last point, so an identical reading is not
+          // pushed a second time below.
+          last = pending;
+        }
+        this.pendingLocation[deviceId] = undefined;
+        if (!last || last.x !== x || last.y !== y) {
+          this.pushTrackPoint(deviceId, trackPoint(x, y, p.postureTheta));
+        }
+        this.lastLocation[deviceId] = { x, y };
+      }
+    }
+    // Re-read it: a compaction swaps the array out, so the one captured above may be the
+    // track as it stood before.
+    const collected = this.locationHistory[deviceId];
+    if (collected[collected.length - 1] !== prevLast) {
+      const now = Date.now();
+      const last = this.lastMapRender[deviceId] || 0;
+      const minMs = this.mapRenderMinMs();
+      if (now - last >= minMs) {
+        this.renderMapNow(deviceId);
+      } else if (!this.mapRenderTimeout[deviceId]) {
+        // Trailing edge: the positions arriving until then are all in the track already, so
+        // the one render that follows shows every one of them.
+        this.mapRenderTimeout[deviceId] = this.setTimeout(() => this.renderMapNow(deviceId), minMs - (now - last));
+      }
     }
   }
 
@@ -1878,37 +1895,49 @@ class Navimow extends utils.Adapter {
             common: { name: 'Raw JSON', write: false, read: true, type: 'string', role: 'json' },
             native: {},
           });
-          await this.setObjectNotExistsAsync(id + '.map', {
-            type: 'state',
-            common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
-            native: {},
-          });
-          await this.setObjectNotExistsAsync(id + '.mapTrack', {
-            type: 'state',
-            common: { name: 'Mowing Map track (world positions JSON)', write: false, read: true, type: 'string', role: 'json' },
-            native: {},
-          });
-          await this.setObjectNotExistsAsync(id + '.mapFrame', {
-            type: 'state',
-            common: { name: 'Mowing Map frame (world bounds and pixel geometry JSON)', write: false, read: true, type: 'string', role: 'json' },
-            native: {},
-          });
-          await this.setObjectNotExistsAsync(id + '.dockPosition', {
-            type: 'state',
-            common: {
-              name: 'Charging station position (world position JSON, writable)',
-              write: true,
-              read: true,
-              type: 'string',
-              role: 'json',
-            },
-            native: {},
-          });
-          // Both before the track: loading it renders the map, which needs the frame, and the
-          // charging station belongs in that first picture rather than in the next one.
-          await this.loadMapFrame(id);
-          await this.loadDockPosition(id);
-          await this.loadMapTrack(id);
+          // Only where the map is drawn. States for a feature that is switched off are clutter
+          // in the object tree, and the four of them mean nothing without it. Ones an earlier
+          // run created are left alone: they hold the last picture and the track behind it, and
+          // throwing that away over a checkbox is not this adapter's call to make.
+          if (this.config.mapEnabled) {
+            await this.setObjectNotExistsAsync(id + '.map', {
+              type: 'state',
+              common: { name: 'Mowing Map (PNG base64)', write: false, read: true, type: 'string', role: 'text' },
+              native: {},
+            });
+            await this.setObjectNotExistsAsync(id + '.mapTrack', {
+              type: 'state',
+              common: { name: 'Mowing Map track (world positions JSON)', write: false, read: true, type: 'string', role: 'json' },
+              native: {},
+            });
+            await this.setObjectNotExistsAsync(id + '.mapFrame', {
+              type: 'state',
+              common: {
+                name: 'Mowing Map frame (world bounds and pixel geometry JSON)',
+                write: false,
+                read: true,
+                type: 'string',
+                role: 'json',
+              },
+              native: {},
+            });
+            await this.setObjectNotExistsAsync(id + '.dockPosition', {
+              type: 'state',
+              common: {
+                name: 'Charging station position (world position JSON, writable)',
+                write: true,
+                read: true,
+                type: 'string',
+                role: 'json',
+              },
+              native: {},
+            });
+            // Both before the track: loading it renders the map, which needs the frame, and the
+            // charging station belongs in that first picture rather than in the next one.
+            await this.loadMapFrame(id);
+            await this.loadDockPosition(id);
+            await this.loadMapTrack(id);
+          }
           await this.setObjectNotExistsAsync(id + '.diagnostics', {
             type: 'channel',
             common: { name: 'Diagnostics' },
@@ -2218,6 +2247,10 @@ class Navimow extends utils.Adapter {
         this.lastVehicleState[deviceId] = newState;
         if (newState !== prevState) {
           this.log.debug(`vehicleState transition: "${prevState || 'unknown'}" -> "${newState}"`);
+        }
+        // Everything the transition is read for - clearing the map, marking where a session
+        // started, locating the charging station - is the map's business and stops with it.
+        if (newState !== prevState && this.config.mapEnabled) {
           if (SESSION_END_STATES.has(prevState) && this.isLocationActiveState(newState)) {
             if (this.lastMowingPercentage[deviceId] == null) {
               // Fallback for mowers that never send a mowing progress with their positions:

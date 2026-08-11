@@ -69,6 +69,19 @@
       "size": 3,
       "newLine": true
     },
+    "mapEnabled": {
+      "type": "checkbox",
+      "newLine": true,
+      "xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6,
+      "label": {
+        "en": "Draw the mowing map",
+        "de": "Mähkarte zeichnen"
+      },
+      "help": {
+        "en": "Off by default: drawing costs about 80 ms and a 65 KiB state write every few seconds while the mower is out. Everything below only applies when this is on.",
+        "de": "Standardmäßig aus: Das Zeichnen kostet etwa 80 ms und einen 65 KiB großen State-Schreibvorgang alle paar Sekunden, solange der Mäher unterwegs ist. Alles Weitere gilt nur, wenn dies eingeschaltet ist."
+      }
+    },
     "mapLineColor": {
       "type": "color",
       "newLine": true,

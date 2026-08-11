@@ -142,6 +142,8 @@ If HTTP polling reports an active mowing state but no MQTT `location` message is
 
 The adapter renders a live mowing map as a PNG image (base64 data URI) in the state `{deviceId}.map`. The map is automatically updated during mowing and cleared when a new mowing session starts.
 
+**The map is off unless `mapEnabled` is set.** It is the one expensive thing this adapter does, and an installation that never looks at a picture should not pay for one. While it is off nothing is collected, decided or drawn, the four states it needs are not created, and the only thing the location messages still do is fill `location.*` as before. Switching it on takes effect on the next start of the instance, which saving the settings does anyway. Switching it off again leaves the states where they are — they hold the last picture and the track behind it, and throwing that away over a checkbox is not the adapter's call.
+
 Drawing it is not free: the whole track goes onto a canvas, becomes a PNG and a base64 state write of 43 to 65 KiB — about 80 ms of blocked event loop for a session-length track, on the same loop that takes the MQTT messages the map is made of. A position therefore waits at most `mapRenderInterval` seconds (1 – 30, default 3) for its render, and the positions arriving meanwhile all appear in the one render that follows. Two seconds is as smooth as the mower reports; a weak host or a large lawn is better off higher. The renders that must be right straight away — the mower reaching the dock, a reset map, a charging station moved by hand — go through without waiting whatever the setting says.
 
 A new session is recognised by the mowing progress reported with each location message: it starts over at zero for a new session, and picks up where it left off when the mower carries on after a charging break. The mower state cannot tell the two apart — a mower that docks halfway through to charge and then drives back out looks exactly like one starting a fresh session — so the map is cleared when the progress falls below the value last seen, and not on a state change. Should a mower not report a progress at all, the map falls back to being cleared when it leaves the dock for a mowing state; that fallback is switched off for good as soon as a progress has been seen once.
@@ -160,6 +162,7 @@ Three adapter settings decide how the track is drawn, so it can be toned down to
 
 | Setting          | Range      | Default | Description                                                                        |
 | ---------------- | ---------- | ------- | ---------------------------------------------------------------------------------- |
+| `mapEnabled`     | on, off    | off     | Nothing below applies while this is off, and nothing is collected or drawn            |
 | `mapLineColor`   | any colour | empty   | Empty keeps the gradient from blue at the start to green at the current position     |
 | `mapLineOpacity` | 0.05 – 1   | 1       | Below 1 a background image shows through the track                                   |
 | `mapLineWidth`   | 0.5 – 10   | 1.5     | Line width in pixels                                                                 |
@@ -284,6 +287,8 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Stop refreshing the OAuth token once per failed MQTT connect attempt, without giving up the refresh that recovers an expired one
 - (typhosj) Look for devices again on every poll, so a discovery that failed at startup no longer leaves the adapter idle until it is restarted by hand
 - (typhosj) Try a failed token refresh again instead of dropping the chain, so a network outage over a refresh window no longer takes the adapter offline until a restart
+- (typhosj) Load the canvas library on first use, so a host without a prebuild for it runs the adapter without a map instead of not running it at all
+- (typhosj) The mowing map is a setting now and off by default, so an installation that does not want it pays nothing for it (#7)
 - (typhosj) Keep the whole session in the track rather than its last 5000 positions, so the beginning no longer disappears off the map while the mower is still out (#7)
 - (typhosj) Track colour, opacity and width can be set, so the map can be laid over a picture of the garden (#7)
 - (typhosj) Draw the map at most every `mapRenderInterval` seconds instead of on every position, so a session no longer spends minutes of event loop and state writes on pictures nobody sees (#7)

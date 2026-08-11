@@ -33,6 +33,7 @@ function adapter(seed = {}) {
   const fake = Object.create(Navimow.prototype);
   Object.assign(fake, {
     log: { debug() {}, info() {}, warn() {}, error() {} },
+    config: { mapEnabled: true },
     deviceArray: [DEVICE],
     // Recorded rather than ignored: a reading that arrived late must not reach the states
     // either, and this is the only place the payload gets written to them.
@@ -248,6 +249,29 @@ describe('mowing session detection', () => {
 
     send(fake, [{ mowingPercentage: 0, subtotalArea: '0.0', type: 2 }]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
+  });
+});
+
+describe('the map switched off', () => {
+  it('collects nothing and draws nothing, but still fills the location states', () => {
+    const fake = adapter({ config: { mapEnabled: false } });
+    let rendered = 0;
+    fake.renderMap = () => rendered++;
+
+    send(fake, [{ postureX: '1.0', postureY: '1.0', time: 1_000_000, type: 1 }]);
+    send(fake, [START]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
+    expect(rendered).to.equal(0);
+    // The states are the part that has nothing to do with the map.
+    expect(fake.parsed).to.have.lengthOf(2);
+  });
+
+  it('still drops a reading the broker delivered late', () => {
+    const fake = adapter({ config: { mapEnabled: false } });
+
+    send(fake, [SESSION_DONE]);
+    send(fake, [LATE_ARRIVAL]);
+    expect(fake.parsed).to.deep.equal([SESSION_DONE]);
   });
 });
 
