@@ -50,6 +50,15 @@ const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 // position driven since it from the next reset.
 const SESSION_START_GRACE_MS = 5 * 60 * 1000;
 
+// How far the mowed area has to fall before it counts as a new session rather than the mower
+// correcting what it thinks it has covered. Unlike the progress, which moves in whole percent
+// and cannot jitter, the area is a computed value with two decimals, and without a threshold a
+// single tick the wrong way would wipe a track mid-session. A session that starts over drops by
+// everything it mowed, and a percent of a lawn is several square metres, so a metre sits far
+// below the signal and far above the noise. A session that ended below it is one the progress
+// still catches - and one whose track is a few positions long.
+const MOWED_AREA_RESTART_DROP_M2 = 1;
+
 // How often at most the mowing track is written to its state while the mower is out.
 const MAP_TRACK_SAVE_MS = 30 * 1000;
 
@@ -216,6 +225,7 @@ class Navimow extends utils.Adapter {
     this.locationHistory = {};
     this.trackTolerance = {};
     this.lastMowingPercentage = {};
+    this.lastSubtotalArea = {};
     this.sessionStart = {};
     this.lastStateChannelAt = {};
     this.lastTrackSave = {};
@@ -615,13 +625,31 @@ class Navimow extends utils.Adapter {
         // and miss the boundary. The newest restart in the batch wins, and the points ahead of
         // it belong to the session that just ended, so they go with it.
         //
-        // The progress is late, though: for about a minute after leaving the dock the mower
-        // still reports the one of the session before. `sessionStart` holds where the track
-        // stood when it left, set on the state change, so the positions driven in that minute
-        // survive the reset the progress asks for once it catches up.
+        // The progress is late, though: for minutes after leaving the dock the mower still
+        // reports the one of the session before - it only ticks once a whole percent is done,
+        // which on a large lawn is several minutes. `sessionStart` holds where the track stood
+        // when it left, set on the state change, so the positions driven until then survive the
+        // reset the progress asks for once it catches up.
+        //
+        // `subtotalArea` says the same thing in square metres, and it is the field the mower
+        // zeroes the moment it takes on a new task: the message announcing the start carries
+        // "0.0" square metres next to the stale 100 % of the session before. So the area is
+        // asked first and answers minutes earlier; the percentage stays as the second witness,
+        // for the mowers or firmwares that send no area at all.
+        //
+        // The two are not one quantity rescaled, measured over one session: 4.21 m² at 1.04 %
+        // puts the lawn at 405 m², 224.15 m² at 61.01 % puts it at 367 m². The percentage
+        // follows the planned path, the area follows the ground covered. What the area is, is
+        // an accumulator: over the same session it tracked the rise in `mowingWeekArea` to
+        // within 0.05 m² (734.08 -> 958.18 against 0.0 -> 224.15), a charging break in the
+        // middle included.
+        //
+        // What does not tell the two apart is the message itself: `action: -1` and a
+        // `mapWorkPosition` starting FFFFFFFF ride on the announcement of a new task and on
+        // the first message after a charging break alike. Only the numbers decide.
         const pendingStart = this.sessionStart[deviceId];
         let resetAt = -1;
-        let resetFrom;
+        let resetReason = '';
         // Whether the progress has said what the pending session start is: a restart answers
         // "a new one", a rise above the last progress answers "the one it went to charge from".
         let decided = false;
@@ -631,25 +659,57 @@ class Navimow extends utils.Adapter {
         // and stored again with every position, as if the mower had just said it.
         let reported = false;
         let progress = this.lastMowingPercentage[deviceId];
+        let area = this.lastSubtotalArea[deviceId];
         for (let i = 0; i < points.length; i++) {
           const p = points[i];
-          if (!p || p.mowingPercentage == null) continue;
+          if (!p) continue;
           const percentage = Number(p.mowingPercentage);
-          if (!Number.isFinite(percentage)) continue;
-          reported = true;
-          // A progress of zero only starts a session while there is nothing to compare it
-          // against. Once it is known, the drop is what counts: the mower reports zero from
-          // leaving the dock until the first percent is done, which on a large lawn is
-          // minutes of positions, and treating every one of them as a fresh start would
-          // throw the track away again with each message.
-          if (progress == null ? percentage === 0 : percentage < progress) {
-            resetAt = i;
-            resetFrom = progress;
-            decided = true;
-          } else if (progress != null && percentage > progress) {
-            decided = true;
+          if (p.mowingPercentage != null && Number.isFinite(percentage)) {
+            reported = true;
+            // A progress of zero only starts a session while there is nothing to compare it
+            // against. Once it is known, the drop is what counts: the mower reports zero from
+            // leaving the dock until the first percent is done, which on a large lawn is
+            // minutes of positions, and treating every one of them as a fresh start would
+            // throw the track away again with each message.
+            if (progress == null ? percentage === 0 : percentage < progress) {
+              resetAt = i;
+              resetReason = `mowing progress restarted (${progress ?? 'unknown'}% -> ${percentage}%)`;
+              decided = true;
+            } else if (progress != null && percentage > progress) {
+              decided = true;
+            }
+            progress = percentage;
           }
-          progress = percentage;
+          // An empty string is not a zero square metres, but Number('') is - and would read as
+          // a mower that has just started over. Only a value that says something counts.
+          const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
+          if (Number.isFinite(mowed)) {
+            // Only a fall, never a zero on its own: the area stands at "0.0" for the whole
+            // first percent, so starting a session on the value rather than on the fall would
+            // clear the track again with every message of those minutes. A charging break does
+            // not fall: measured on 2026-08-11, the mower docked at 224.15 m² and came back
+            // out reporting 227.26 - what the area accumulates is the session's share of
+            // `mowingWeekArea`, and nothing resets a week counter for a charge.
+            if (area != null && mowed < area - MOWED_AREA_RESTART_DROP_M2) {
+              resetAt = i;
+              resetReason = `mowed area restarted (${area} m² -> ${mowed} m²)`;
+              decided = true;
+              // Read after the percentage of this very point, and deliberately overriding it:
+              // the area has already turned over while the percentage still reports the
+              // session before, and left standing that stale value would ask for a second
+              // reset minutes later, when the percentage finally falls too - throwing away
+              // the start of the new session that was just kept. Nothing is mowed yet, so
+              // zero is what the new session is actually at.
+              //
+              // It also settles the question the state change asks: a progress that is no
+              // longer null switches off the fallback that clears the map on leaving the dock,
+              // for good and even for a mower that never reports a percentage. That is the
+              // right answer - from here on the area says when a session starts.
+              progress = 0;
+              reported = true;
+            }
+            area = mowed;
+          }
         }
         if (pendingStart && !decided && Date.now() - pendingStart.at > SESSION_START_GRACE_MS) {
           // The progress never spoke. Take it for a continuation - it is the answer that keeps
@@ -663,9 +723,11 @@ class Navimow extends utils.Adapter {
           // of the session that is starting.
           this.lastMowingPercentage[deviceId] = progress;
         }
+        if (area != null) {
+          this.lastSubtotalArea[deviceId] = area;
+        }
         if (resetAt >= 0) {
-          const to = Number(points[resetAt].mowingPercentage);
-          this.resetMap(deviceId, `mowing progress restarted (${resetFrom ?? 'unknown'}% -> ${to}%)`, pendingStart?.index);
+          this.resetMap(deviceId, resetReason, pendingStart?.index);
           // Only without a pending session start do the points ahead of the restart belong to
           // the session that ended. With one they were all driven after the mower left the
           // dock, and the progress they carry is the stale one of the session before.
@@ -1027,6 +1089,9 @@ class Navimow extends utils.Adapter {
     // restart cannot tell the first sample of a new session from a resumed one.
     const track = {
       percentage: this.lastMowingPercentage[deviceId] ?? null,
+      // The area travels for the same reason, and it is the field that spots the restart
+      // first. A track written before it did simply comes back without one.
+      area: this.lastSubtotalArea[deviceId] ?? null,
       points: points.map((p) => {
         const pair = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100];
         // The heading is only read off the last position, but carrying it on every one keeps
@@ -1069,6 +1134,9 @@ class Navimow extends utils.Adapter {
     if (!track || !Array.isArray(track.points)) return;
     if (Number.isFinite(track.percentage)) {
       this.lastMowingPercentage[deviceId] = track.percentage;
+    }
+    if (Number.isFinite(track.area)) {
+      this.lastSubtotalArea[deviceId] = track.area;
     }
     const points = track.points
       .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
