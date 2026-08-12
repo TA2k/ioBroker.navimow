@@ -207,6 +207,36 @@ function trackPoint(x, y, postureTheta) {
 }
 
 /**
+ * Whether a reading is the placeholder a standing mower sends instead of a measurement.
+ *
+ * A mower left standing reports exactly "0.0" in all three posture fields, every five minutes
+ * (2026-08-12, overnight, and twice in a full day's log of 2026-08-10). It is not what a
+ * standing mower measures: docked readings in that same log sit at (0.195, 0.062) facing
+ * -2.833 rad, because the origin is the charging station but the mower never sits on it to the
+ * millimetre. Over 7237 positions of that day, exactly those two carry a zero in postureX at
+ * all. So three exact zeros are the mower saying nothing, not saying "here".
+ *
+ * Taken for a measurement it walks the marker the last few centimetres onto the origin and
+ * turns it to face east - a mower that stood still all night looks like it turned round in the
+ * dock overnight, which is what it was reported as.
+ *
+ * All three fields, because one is not enough: a position mowed at (-6.586, ...) in the same
+ * log reports a heading of exactly "0.0", and it is a real one. The numeric `vehicleState`
+ * riding along is 1 on both placeholders and on nothing else in the log - but a mowing
+ * position is a 4, a docked one a 2, and a 3 and a 5 also occur, so what the numbers mean is
+ * guesswork past that. The zeros are the signal; the state is only logged, not trusted.
+ *
+ * @param {any} point one entry of the location payload
+ * @returns {boolean} true if the reading says nothing about where the mower is
+ */
+function isPlaceholderPosture(point) {
+  if (!point) return false;
+  // All three, and all three exactly: a position that only happens to sit on an axis is a
+  // position, and a firmware that sends no heading at all must not have every reading dropped.
+  return strictNumber(point.postureX) === 0 && strictNumber(point.postureY) === 0 && strictNumber(point.postureTheta) === 0;
+}
+
+/**
  * How far `p` sits off the straight line from `a` to `b`.
  *
  * @param {{x:number,y:number}} a one end of the line
@@ -717,7 +747,21 @@ class Navimow extends utils.Adapter {
         // not the track, and not the states written at the end. A message that is stale
         // through and through leaves nothing to act on and ends here.
         points = points.filter((p) => this.isFreshLocationReading(deviceId, p));
+        // The placeholder a standing mower sends goes the same way, and for the same reason:
+        // nothing downstream should have to know it is not a measurement.
+        points = points.filter((p) => {
+          if (!isPlaceholderPosture(p)) return true;
+          this.log.debug(
+            `Ignoring an all-zero posture for ${deviceId} (vehicleState=${p.vehicleState}) - ` +
+              'the mower is standing, not at the origin',
+          );
+          return false;
+        });
         if (!points.length) return;
+        // So the states see what the track sees. A payload holding a placeholder behind
+        // another reading would otherwise still write the zeros, the last entry being what
+        // the states are filled from.
+        if (Array.isArray(data)) data = points;
 
         // The map is what all of this is for, and it is off unless it was asked for. The
         // positions still reach the location states below; what is skipped is collecting

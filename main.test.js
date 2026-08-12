@@ -275,6 +275,38 @@ describe('the map switched off', () => {
   });
 });
 
+describe('the placeholder posture of a standing mower', () => {
+  // Copied from a debug log of 2026-08-12: the mower stood in the dock all night and sent this
+  // every five minutes.
+  const DOCKED = { postureTheta: '0.0', postureX: '0.0', postureY: '0.0', time: 1786509405725, type: 1, vehicleState: 1 };
+
+  it('neither moves the marker onto the origin nor turns it', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 0.155, y: -0.002, theta: 1.9 }] },
+      lastLocation: { [DEVICE]: { x: 0.155, y: -0.002 } },
+    });
+
+    send(fake, [DOCKED]);
+    expect(fake.locationHistory[DEVICE]).to.deep.equal([{ x: 0.155, y: -0.002, theta: 1.9 }]);
+    // And nothing of it reaches the location states either.
+    expect(fake.parsed).to.have.lengthOf(0);
+  });
+
+  it('keeps a real position that happens to sit on an axis', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [] } });
+
+    send(fake, [{ postureX: '0.0', postureY: '2.5', postureTheta: '0.0', time: 1_000_000, type: 1 }]);
+    expect(fake.locationHistory[DEVICE]).to.deep.equal([{ x: 0, y: 2.5, theta: 0 }]);
+  });
+
+  it('does not let a placeholder behind another reading reach the states', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [] } });
+
+    send(fake, [{ partitionIds: [1], time: 1_000_000, type: 3 }, DOCKED]);
+    expect(fake.parsed).to.deep.equal([{ partitionIds: [1], time: 1_000_000, type: 3 }]);
+  });
+});
+
 describe('poll with no devices known', () => {
   /**
    * @param {object} [seed] what the poll finds when it runs
