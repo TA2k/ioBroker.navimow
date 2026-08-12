@@ -1104,8 +1104,13 @@ class Navimow extends utils.Adapter {
   }
 
   renderMap(deviceId) {
-    const points = this.locationHistory[deviceId]?.slice();
-    if (!points || points.length < 2) return;
+    const points = this.locationHistory[deviceId]?.slice() || [];
+    const dock = this.dockPosition[deviceId];
+    // A track of its own needs two positions to be a line. The charging station does not: it
+    // outlives the session, and drawn on its own it keeps the map from going blank between a
+    // reset and the first position of the session that follows. With neither there is nothing
+    // to draw at all.
+    if (points.length < 2 && !dock) return;
     const canvasLib = loadCanvas();
     if (!canvasLib.createCanvas) {
       // Once: the alternative is this line every few seconds for as long as the mower drives,
@@ -1126,11 +1131,16 @@ class Navimow extends utils.Adapter {
     // picture. In a call of its own rather than appended to the positions: the track runs to
     // ten thousand of them and copying that array once a second to add one fixed point to the
     // end of it is work for nothing.
-    const dock = this.dockPosition[deviceId];
-    let frame = this.growMapFrame(deviceId, points);
+    // An empty track is not offered to growMapFrame: with no frame stored yet it would answer
+    // the infinities it started from, and store them.
+    let frame = this.mapFrame[deviceId];
+    if (points.length) {
+      frame = this.growMapFrame(deviceId, points);
+    }
     if (dock) {
       frame = this.growMapFrame(deviceId, [dock]);
     }
+    if (!frame) return;
 
     const configuredSize = Number(this.config.mapMarkerSize);
     const markerSize = configuredSize >= 4 && configuredSize <= 60 ? configuredSize : 10;
@@ -1178,7 +1188,7 @@ class Navimow extends utils.Adapter {
     trackCtx.lineWidth = lineWidth >= 0.5 && lineWidth <= 10 ? lineWidth : 1.5;
     trackCtx.lineJoin = 'round';
     trackCtx.lineCap = 'round';
-    if (color) {
+    if (color && points.length) {
       // One path and one stroke, so there are no seams between the segments at all.
       trackCtx.strokeStyle = color;
       trackCtx.beginPath();
@@ -1212,14 +1222,17 @@ class Navimow extends utils.Adapter {
 
     // Start marker (blue)
     const first = points[0];
-    ctx.fillStyle = '#4488ff';
-    ctx.beginPath();
-    ctx.arc(projectX(first.x), projectY(first.y), 5, 0, Math.PI * 2);
-    ctx.fill();
+    if (first) {
+      ctx.fillStyle = '#4488ff';
+      ctx.beginPath();
+      ctx.arc(projectX(first.x), projectY(first.y), 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-    // Current position marker
+    // Current position marker. There is none on a map that is only the charging station: the
+    // mower is in it, and the station's own badge is already there.
     const last = points[points.length - 1];
-    if (this.config.mapMarker === 'mower') {
+    if (last && this.config.mapMarker === 'mower') {
       // postureTheta is the mower's own heading, counted from +X counterclockwise - the same
       // convention as atan2, checked against the direction actually driven over twelve samples
       // of a straight lane, where the two agreed to a mean of 0.003 rad. It is negated because
@@ -1234,7 +1247,7 @@ class Navimow extends utils.Adapter {
           ? Math.atan2(projectY(last.y) - projectY(prev.y), projectX(last.x) - projectX(prev.x))
           : 0;
       this.drawMowerMarker(ctx, projectX(last.x), projectY(last.y), markerSize, angle);
-    } else {
+    } else if (last) {
       ctx.fillStyle = '#ff4444';
       ctx.beginPath();
       ctx.arc(projectX(last.x), projectY(last.y), markerSize / 2, 0, Math.PI * 2);
@@ -1673,6 +1686,15 @@ class Navimow extends utils.Adapter {
     }
     // The frame deliberately survives: it describes the garden, not the session, and a new
     // session drawn in the same frame lands on the same pixels as the one before it.
+    //
+    // So does the charging station, and blanking the picture took it off the map until the
+    // first position of the new session arrived - the map went empty while the mower was still
+    // leaving the dock. Redrawn instead, it stays; only a map that has no station to show is
+    // cleared.
+    if (this.dockPosition[deviceId]) {
+      this.renderMapNow(deviceId);
+      return;
+    }
     this.setState(deviceId + '.map', '', true);
   }
 

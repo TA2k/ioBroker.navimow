@@ -61,6 +61,7 @@ function adapter(seed = {}) {
     lastSubtotalArea: {},
     lastLocationAt: {},
     lastVehicleState: {},
+    dockPosition: {},
   });
   return Object.assign(fake, seed);
 }
@@ -308,6 +309,37 @@ describe('the placeholder posture of a standing mower', () => {
   });
 });
 
+describe('the map reset', () => {
+  it('redraws with the charging station instead of blanking the picture', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
+      dockPosition: { [DEVICE]: { x: 0.2, y: 0 } },
+    });
+    let rendered = 0;
+    fake.renderMapNow = () => rendered++;
+    let blanked = false;
+    fake.setState = (/** @type {string} */ id, /** @type {any} */ val) => {
+      if (id.endsWith('.map') && val === '') blanked = true;
+    };
+
+    fake.resetMap(DEVICE, 'test');
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
+    expect(rendered).to.equal(1);
+    expect(blanked).to.equal(false);
+  });
+
+  it('clears the picture when there is no station to show', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] }, dockPosition: {} });
+    let blanked = false;
+    fake.setState = (/** @type {string} */ id, /** @type {any} */ val) => {
+      if (id.endsWith('.map') && val === '') blanked = true;
+    };
+
+    fake.resetMap(DEVICE, 'test');
+    expect(blanked).to.equal(true);
+  });
+});
+
 describe('a mower standing in the dock', () => {
   // Three readings of one docked morning (2026-08-12). The mower did not move; its own pose
   // estimate did.
@@ -495,6 +527,7 @@ describe('a host without the canvas library', () => {
     const fake = Object.assign(Object.create(Navimow.prototype), {
       log: { debug() {}, info() {}, warn: (/** @type {string} */ m) => warnings.push(m), error() {} },
       locationHistory: { [DEVICE]: [{ x: 0, y: 0 }, { x: 1, y: 1 }] },
+      dockPosition: {},
       canvasWarned: false,
     });
 
