@@ -1027,7 +1027,9 @@ class Navimow extends utils.Adapter {
         if (!last || last.x !== x || last.y !== y) {
           this.pushTrackPoint(deviceId, trackPoint(x, y, p.postureTheta));
         }
-        this.lastLocation[deviceId] = { x, y };
+        // With the heading: it is what the marker is drawn at while the track is empty, and
+        // this is the one position that survives a reset.
+        this.lastLocation[deviceId] = trackPoint(x, y, p.postureTheta);
       }
     }
     // Re-read it: a compaction swaps the array out, so the one captured above may be the
@@ -1229,9 +1231,11 @@ class Navimow extends utils.Adapter {
       ctx.fill();
     }
 
-    // Current position marker. There is none on a map that is only the charging station: the
-    // mower is in it, and the station's own badge is already there.
-    const last = points[points.length - 1];
+    // Current position marker. On a map with no track the mower is in the dock, so that is
+    // where it is drawn - facing the way it arrived, which is the heading lastLocation kept
+    // across the reset. Without it the mower would be missing from the picture for as long as
+    // it takes the new session to report its first position.
+    const last = points[points.length - 1] || (dock ? { ...dock, theta: this.lastLocation[deviceId]?.theta } : undefined);
     if (last && this.config.mapMarker === 'mower') {
       // postureTheta is the mower's own heading, counted from +X counterclockwise - the same
       // convention as atan2, checked against the direction actually driven over twelve samples
