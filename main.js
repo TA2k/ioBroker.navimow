@@ -498,7 +498,35 @@ class Navimow extends utils.Adapter {
         let brokerUrl;
         const mqttOpts = {
           clientId: 'web_' + (mqttUsername || 'iobroker') + '_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10),
-          keepalive: 2400,
+          // How long the client may stay silent before it owes the broker a PINGREQ, in
+          // seconds - and, at 1.5x, how long the broker waits before it may drop a client it
+          // has not heard from.
+          //
+          // It stood at 2400, forty minutes of allowed silence, and that is what killed the
+          // stream whenever the mower stood still. Measured on the wss path over two full days
+          // (2026-08-11/12, mower docked overnight): after every connect exactly two of the
+          // mower's five-minute heartbeats arrive, then the connection goes quiet and stays
+          // quiet - location and state channel alike - with no error, no close and no
+          // reconnect. Only the scheduled token reconnect 55 minutes later brought it back:
+          //
+          //   connect 03:42:28 -> last message 03:51:45 -> silence until 04:37
+          //   connect 04:37:18 -> last message 04:46:45 -> silence until 05:32
+          //   connect 05:32:18 -> last message 05:41:45 -> silence until 06:27
+          //
+          // Something on the way to the broker reaps a connection idle for about ten minutes,
+          // and reaps it without a FIN, so mqtt.js believes it is connected until its own ping
+          // falls due - which at 2400 is long after the reconnect that hid the whole thing.
+          // Mowing masks the fault: positions arrive every two seconds, the connection never
+          // falls idle, and the stream ran six hours without a gap on the same day.
+          //
+          // The 2400 is the upstream SDK's value, and it guards a broker that drops connections
+          // after an hour without traffic - mower_sdk/mqtt.py picks forty minutes so that one
+          // PINGREQ falls inside that hour, and clamps the setting at max(30, ...). That is a
+          // lower bound on traffic, not an upper one, and the vendor's own floor is 30 seconds.
+          // At 60 the client sends four bytes a minute, well inside both limits, the connection
+          // never sits idle long enough to be reaped, and a link that dies anyway is noticed
+          // within two minutes instead of up to eighty.
+          keepalive: 60,
           reconnectPeriod: 10000,
         };
 
