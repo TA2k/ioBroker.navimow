@@ -60,6 +60,7 @@ function adapter(seed = {}) {
     lastMowingPercentage: {},
     lastSubtotalArea: {},
     lastLocationAt: {},
+    lastVehicleState: {},
   });
   return Object.assign(fake, seed);
 }
@@ -304,6 +305,50 @@ describe('the placeholder posture of a standing mower', () => {
 
     send(fake, [{ partitionIds: [1], time: 1_000_000, type: 3 }, DOCKED]);
     expect(fake.parsed).to.deep.equal([{ partitionIds: [1], time: 1_000_000, type: 3 }]);
+  });
+});
+
+describe('a mower standing in the dock', () => {
+  // Three readings of one docked morning (2026-08-12). The mower did not move; its own pose
+  // estimate did.
+  const DRIFT = [
+    { postureX: '0.329', postureY: '0.042', postureTheta: '-2.859', time: 1_000_000, type: 1 },
+    { postureX: '0.551', postureY: '-0.252', postureTheta: '-2.86', time: 1_300_000, type: 1 },
+    { postureX: '0.911', postureY: '-0.707', postureTheta: '-2.859', time: 1_600_000, type: 1 },
+  ];
+
+  it('does not grow the track while it stands there', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 0.2, y: 0.05, theta: -2.85 }] },
+      lastVehicleState: { [DEVICE]: 'isDocked' },
+    });
+
+    for (const p of DRIFT) send(fake, [p]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
+    // The states still see every one of them - only the track is spared.
+    expect(fake.parsed).to.have.lengthOf(3);
+  });
+
+  it('still takes the position it arrives with, which is reported while docking', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [] },
+      lastVehicleState: { [DEVICE]: 'isDocking' },
+    });
+
+    send(fake, [DRIFT[0]]);
+    expect(fake.locationHistory[DEVICE]).to.deep.equal([{ x: 0.329, y: 0.042, theta: -2.859 }]);
+  });
+
+  it('collects again as soon as the mower drives out', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [] },
+      lastVehicleState: { [DEVICE]: 'isDocked' },
+    });
+
+    send(fake, [DRIFT[0]]);
+    fake.lastVehicleState[DEVICE] = 'isRunning';
+    send(fake, [DRIFT[1]]);
+    expect(fake.locationHistory[DEVICE].map((p) => p.x)).to.deep.equal([0.551]);
   });
 });
 

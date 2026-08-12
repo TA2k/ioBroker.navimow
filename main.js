@@ -964,6 +964,21 @@ class Navimow extends utils.Adapter {
       delete this.sessionStart[deviceId];
     }
 
+    // A mower in the dock keeps reporting a position every five minutes, and its own pose
+    // estimate wanders while it stands there: measured over one docked morning (2026-08-12)
+    // it covered 1.16 m in steps of 2 to 47 cm without the mower having moved at all. Each
+    // step is a point, so the track grows all night; and because the frame only ever grows,
+    // a drift excursion widens the picture for good, while the jump guard sits at ten metres
+    // and never sees a metre of it.
+    //
+    // The track is a mowing track. The position the mower arrives in the dock with is worth
+    // having - it is what locates the charging station - and it is already collected, because
+    // it is reported while the state is still isDocking. From the arrival on there is nothing
+    // to record until the mower drives out again.
+    if (SESSION_END_STATES.has(String(this.lastVehicleState[deviceId]))) {
+      points = [];
+    }
+
     if (!this.locationHistory[deviceId]) {
       this.locationHistory[deviceId] = [];
     }
