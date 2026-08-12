@@ -207,6 +207,36 @@ function trackPoint(x, y, postureTheta) {
 }
 
 /**
+ * What a failed API call is worth saying, in one line.
+ *
+ * The body used to be logged verbatim next to the message, and a gateway in front of the API
+ * does not answer in JSON: the 502 of 2026-08-12 put nine lines of
+ * `<html><head><title>502 Bad Gateway</title>...` into the log at error level, none of which
+ * said more than the status code. A JSON body is worth keeping - it carries the API's own
+ * reason - so it stays, capped at a length that cannot bury the rest of the log.
+ *
+ * @param {any} error the rejection axios threw
+ * @returns {string} the status and what the body says, empty if there was no response at all
+ */
+function apiErrorDetail(error) {
+  const response = error?.response;
+  if (!response) return '';
+  const data = response.data;
+  let body = '';
+  if (typeof data === 'string') {
+    // An HTML error page says everything it has to say in its title.
+    const title = data.match(/<title>([^<]*)<\/title>/i);
+    body = (title ? title[1] : data).replace(/\s+/g, ' ').trim();
+  } else if (data != null) {
+    body = JSON.stringify(data);
+  }
+  if (body.length > 200) {
+    body = body.slice(0, 200) + '...';
+  }
+  return `HTTP ${response.status}` + (body ? `: ${body}` : '');
+}
+
+/**
  * Whether a reading is the placeholder a standing mower sends instead of a measurement.
  *
  * A mower left standing reports exactly "0.0" in all three posture fields, every five minutes
@@ -665,8 +695,7 @@ class Navimow extends utils.Adapter {
         });
       })
       .catch((error) => {
-        this.log.warn('MQTT setup failed: ' + error.message);
-        error.response && this.log.debug(JSON.stringify(error.response.data));
+        this.logApiError('MQTT setup failed', error, 'warn');
         this.scheduleMqttRetry();
       });
   }
@@ -1702,6 +1731,19 @@ class Navimow extends utils.Adapter {
     this.setState(deviceId + '.map', '', true);
   }
 
+  /**
+   * Say that an API call failed, in one line: what was being done, what axios said, and what
+   * the endpoint answered.
+   *
+   * @param {string} what the call that failed, as it reads in the log
+   * @param {any} error the rejection axios threw
+   * @param {'error'|'warn'} [level] how loud, for the calls that carry on regardless
+   */
+  logApiError(what, error, level = 'error') {
+    const detail = apiErrorDetail(error);
+    this.log[level](`${what}: ${error?.message || error}` + (detail ? ` - ${detail}` : ''));
+  }
+
   checkLocationWatchdog(deviceId, vehicleState) {
     const now = Date.now();
     const active = this.isLocationActiveState(vehicleState);
@@ -1879,8 +1921,7 @@ class Navimow extends utils.Adapter {
         return null;
       })
       .catch((error) => {
-        this.log.error('Token exchange error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        this.logApiError('Token exchange error', error);
         return null;
       });
   }
@@ -1907,8 +1948,7 @@ class Navimow extends utils.Adapter {
         return null;
       })
       .catch((error) => {
-        this.log.warn('Token refresh failed: ' + error.message);
-        error.response && this.log.debug(JSON.stringify(error.response.data));
+        this.logApiError('Token refresh failed', error, 'warn');
         return null;
       });
   }
@@ -2104,8 +2144,7 @@ class Navimow extends utils.Adapter {
         this.log.info('Found ' + devices.length + ' device(s)');
       })
       .catch((error) => {
-        this.log.error('getDeviceList error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        this.logApiError('getDeviceList error', error);
       });
   }
 
@@ -2202,8 +2241,7 @@ class Navimow extends utils.Adapter {
           this.handleTokenRefresh();
           return;
         }
-        this.log.error('updateDevices error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        this.logApiError('updateDevices error', error);
       });
   }
 
@@ -2331,8 +2369,7 @@ class Navimow extends utils.Adapter {
           this.handleTokenRefresh();
           return;
         }
-        this.log.error('sendCommand error: ' + error.message);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+        this.logApiError('sendCommand error', error);
       });
   }
 

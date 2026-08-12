@@ -309,6 +309,48 @@ describe('the placeholder posture of a standing mower', () => {
   });
 });
 
+describe('what a failed API call says in the log', () => {
+  /**
+   * @param {any} error the rejection to log
+   * @returns {string} the one line it produced
+   */
+  function logged(error) {
+    const lines = [];
+    const fake = Object.assign(Object.create(Navimow.prototype), {
+      log: { error: (/** @type {string} */ m) => lines.push(m), warn: (/** @type {string} */ m) => lines.push(m) },
+    });
+    fake.logApiError('updateDevices error', error);
+    expect(lines).to.have.lengthOf(1);
+    return lines[0];
+  }
+
+  // The body the Azure gateway in front of the API answered with on 2026-08-12.
+  const GATEWAY_502 =
+    '<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n' +
+    '<hr><center>Microsoft-Azure-Application-Gateway/v2</center>\r\n</body>\r\n</html>\r\n';
+
+  it('boils an HTML error page down to its title', () => {
+    const line = logged({ message: 'Request failed with status code 502', response: { status: 502, data: GATEWAY_502 } });
+    expect(line).to.equal('updateDevices error: Request failed with status code 502 - HTTP 502: 502 Bad Gateway');
+  });
+
+  it('keeps a JSON body, which carries the API reason', () => {
+    const line = logged({ message: 'Request failed with status code 400', response: { status: 400, data: { code: 5, desc: 'no' } } });
+    expect(line).to.contain('HTTP 400: {"code":5,"desc":"no"}');
+  });
+
+  it('caps a body long enough to bury the log', () => {
+    const line = logged({ message: 'boom', response: { status: 500, data: 'x'.repeat(5000) } });
+    expect(line).to.have.length.below(260);
+    expect(line).to.contain('...');
+  });
+
+  it('says the status alone when there is no body, and nothing extra without a response', () => {
+    expect(logged({ message: 'boom', response: { status: 503, data: '' } })).to.equal('updateDevices error: boom - HTTP 503');
+    expect(logged({ message: 'connect ETIMEDOUT' })).to.equal('updateDevices error: connect ETIMEDOUT');
+  });
+});
+
 describe('the map reset', () => {
   it('redraws with the charging station instead of blanking the picture', () => {
     const fake = adapter({
