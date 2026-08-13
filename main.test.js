@@ -119,6 +119,21 @@ const LATE_ARRIVAL = {
   type: 2,
 };
 
+// The message the mower sent from the dock on 2026-08-13 at 03:14, hours after it had
+// stopped: no task, and the broken-off session booked into the week total.
+const NO_TASK = {
+  action: -1,
+  currentMowBoundary: 0,
+  currentMowProgress: 0,
+  mapWorkPosition: 'FFFFFFFF' + '0'.repeat(248),
+  mowStartType: 0,
+  mowingPercentage: 0,
+  mowingWeekArea: '1477.67',
+  subtotalArea: '0.0',
+  time: 1786583683024,
+  type: 2,
+};
+
 describe('mowing session detection', () => {
   it('clears the track on the message announcing the new task, not minutes later', () => {
     const fake = adapter({
@@ -219,6 +234,22 @@ describe('mowing session detection', () => {
     send(fake, [{ subtotalArea: '239.99', type: 2 }]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
     expect(fake.lastSubtotalArea[DEVICE]).to.equal(239.99);
+  });
+
+  it('keeps the track when the mower reports no task at all', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
+      lastSubtotalArea: { [DEVICE]: 4.08 },
+      lastMowingPercentage: { [DEVICE]: 1 },
+      lastVehicleState: { [DEVICE]: 'isDocked' },
+    });
+
+    send(fake, [NO_TASK]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
+    // Neither zero may be remembered: taken for the truth, the next real sample would look
+    // like a rise out of nothing and the session before it would never be closed.
+    expect(fake.lastSubtotalArea[DEVICE]).to.equal(4.08);
+    expect(fake.lastMowingPercentage[DEVICE]).to.equal(1);
   });
 
   it('does not read an empty area as a fresh start', () => {

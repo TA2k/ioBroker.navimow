@@ -908,6 +908,17 @@ class Navimow extends utils.Adapter {
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       if (!p) continue;
+      // A message that reports no task at all. Its zeroes say a session is missing, not that
+      // one is beginning, and read as a start they throw the track away: on 2026-08-13 at
+      // 03:14 the mower sent one from the dock, hours after it had stopped, booking the
+      // 4.08 m² of the session it broke off into the week total - and the map went empty
+      // overnight without the mower having moved.
+      //
+      // `mowStartType` is what says it: 0 in that one message and 1 in all 207 others of
+      // three days of logs, alongside a `currentMowBoundary` and a `currentMowProgress` of
+      // zero and a `mapWorkPosition` that is nothing but its FFFFFFFF prefix. What does not
+      // tell it apart is `action: -1`, which is also the routine progress tick.
+      if (Number(p.mowStartType) === 0) continue;
       const percentage = Number(p.mowingPercentage);
       const hasPercentage = p.mowingPercentage != null && Number.isFinite(percentage);
       // An empty string is not a zero square metres, but Number('') is - and would read as
