@@ -592,6 +592,84 @@ describe('MQTT credential refresh on close', () => {
   });
 });
 
+describe('a status poll that does not come back', () => {
+  /**
+   * @returns {any} an adapter recording the level of every line and every connection state
+   */
+  function polling() {
+    /** @type {string[]} */
+    const lines = [];
+    /** @type {boolean[]} */
+    const connection = [];
+    return Object.assign(Object.create(Navimow.prototype), {
+      lines,
+      connection,
+      log: {
+        warn: (/** @type {string} */ m) => lines.push('warn: ' + m),
+        error: (/** @type {string} */ m) => lines.push('error: ' + m),
+        info: (/** @type {string} */ m) => lines.push('info: ' + m),
+        debug() {},
+      },
+      setState(/** @type {string} */ id, /** @type {boolean} */ value) {
+        if (id === 'info.connection') connection.push(value);
+      },
+    });
+  }
+
+  // What the cloud answered on 2026-08-12: an Azure error page behind a 502.
+  const GATEWAY = Object.assign(new Error('Request failed with status code 502'), {
+    response: { status: 502, data: '<html><head><title>502 Bad Gateway</title></head></html>' },
+  });
+
+  it('warns on a hiccup and leaves the connection alone', () => {
+    const fake = polling();
+
+    fake.notePollFailure('updateDevices error', GATEWAY);
+    fake.notePollFailure('updateDevices error', GATEWAY);
+    expect(fake.lines).to.deep.equal([
+      'warn: updateDevices error: Request failed with status code 502 - HTTP 502: 502 Bad Gateway',
+      'warn: updateDevices error: Request failed with status code 502 - HTTP 502: 502 Bad Gateway',
+    ]);
+    expect(fake.connection).to.be.empty;
+  });
+
+  it('calls itself disconnected once three in a row have failed', () => {
+    const fake = polling();
+
+    for (let i = 0; i < 3; i++) fake.notePollFailure('updateDevices error', GATEWAY);
+    expect(fake.lines[2]).to.match(/^error: /);
+    expect(fake.connection).to.deep.equal([false]);
+  });
+
+  it('takes a poll that got through for the run being over', () => {
+    const fake = polling();
+
+    fake.notePollFailure('updateDevices error', GATEWAY);
+    fake.notePollFailure('updateDevices error', GATEWAY);
+    fake.notePollSuccess();
+    // Nothing was ever taken away, so nothing is handed back - and the next hiccup is a
+    // warning again rather than the third of a run that ended.
+    expect(fake.connection).to.be.empty;
+    fake.notePollFailure('updateDevices error', GATEWAY);
+    expect(fake.lines[2]).to.match(/^warn: /);
+  });
+
+  it('says the connection is back when the readings are', () => {
+    const fake = polling();
+
+    for (let i = 0; i < 4; i++) fake.notePollFailure('updateDevices error', GATEWAY);
+    fake.notePollSuccess();
+    expect(fake.connection).to.deep.equal([false, false, true]);
+  });
+
+  it('takes what the API said in place of a rejection', () => {
+    const fake = polling();
+
+    fake.notePollFailure('updateDevices failed', 'Server error. Please try again later.');
+    expect(fake.lines).to.deep.equal(['warn: updateDevices failed: Server error. Please try again later.']);
+  });
+});
+
 // Last on purpose: the adapter remembers the outcome of loading the canvas library, so making
 // it fail here would make it fail for every test after this one. Nothing else renders.
 describe('a host without the canvas library', () => {

@@ -70,6 +70,12 @@ const SESSION_START_GRACE_MS = 5 * 60 * 1000;
 // still catches - and one whose track is a few positions long.
 const MOWED_AREA_RESTART_DROP_M2 = 1;
 
+// How many status polls in a row have to come back empty-handed before the adapter calls
+// itself disconnected. On the default five-minute interval that is a quarter of an hour of
+// readings the mower never sent - long past a cloud hiccup, and long enough that whatever the
+// states still say about the mower is out of date.
+const POLL_FAILURES_UNTIL_ERROR = 3;
+
 // A location reading dated this far ahead of the host clock does not become the newest one
 // seen. Only a wrong clock produces one, and letting it set the mark would lock every real
 // reading after it out - so the guard steps aside instead, and a mower running minutes ahead
@@ -1765,6 +1771,50 @@ class Navimow extends utils.Adapter {
     this.log[level](`${what}: ${error?.message || error}` + (detail ? ` - ${detail}` : ''));
   }
 
+  /**
+   * A status poll that did not come back with a reading.
+   *
+   * One of them says nothing: the cloud answers a 502 or an "Exception.Server.Error" now and
+   * then and has the next poll again minutes later - three times over 2026-08-11 to 08-13,
+   * every one of them gone by the following poll. Reported as an error, each rings the alarm
+   * rules people hang off the ioBroker log for a gap in the readings nobody noticed.
+   *
+   * POLL_FAILURES_UNTIL_ERROR of them in a row is not nothing. That is a quarter of an hour
+   * without a reading on the default interval, and it is the point at which the states the
+   * adapter publishes are no longer the mower's. So it says so, at error level and by putting
+   * `info.connection` where it belongs - which nothing did until now: the state only ever
+   * went false on a 401 or a dead token refresh, so a cloud that was simply unreachable left
+   * the adapter green in the admin for as long as it lasted.
+   *
+   * @param {string} what the call that failed, already worded for the log
+   * @param {any} error the rejection, or what the API said instead of a reading
+   */
+  notePollFailure(what, error) {
+    this.pollFailures = (this.pollFailures || 0) + 1;
+    if (this.pollFailures < POLL_FAILURES_UNTIL_ERROR) {
+      this.logApiError(what, error, 'warn');
+      return;
+    }
+    this.logApiError(what, error, 'error');
+    this.setState('info.connection', false, true);
+  }
+
+  /**
+   * A status poll that came back. The count runs over polls in a row, so anything that got
+   * through ends the run - the next hiccup starts again at a warning.
+   */
+  notePollSuccess() {
+    // Only where it was taken away, and never on the way past: the readings are flowing
+    // again, and nothing else would put the state back - it is set on login and then only
+    // ever cleared. Writing it on every poll instead would put a state change on the bus
+    // every five minutes for a connection that never went anywhere.
+    if (this.pollFailures >= POLL_FAILURES_UNTIL_ERROR) {
+      this.log.info('Status polling recovered after ' + this.pollFailures + ' failed polls');
+      this.setState('info.connection', true, true);
+    }
+    this.pollFailures = 0;
+  }
+
   checkLocationWatchdog(deviceId, vehicleState) {
     const now = Date.now();
     const active = this.isLocationActiveState(vehicleState);
@@ -2189,11 +2239,13 @@ class Navimow extends utils.Adapter {
       .then((res) => {
         this.log.debug(JSON.stringify(res.data));
         if (!res.data || res.data.code !== 1) {
-          this.log.error(
-            'updateDevices failed: ' + ((res.data && res.data.desc) || JSON.stringify(res.data)),
+          this.notePollFailure(
+            'updateDevices failed',
+            (res.data && res.data.desc) || JSON.stringify(res.data),
           );
           return;
         }
+        this.notePollSuccess();
         const devices = res.data.data?.payload?.devices || [];
 
         for (const deviceData of devices) {
@@ -2262,7 +2314,7 @@ class Navimow extends utils.Adapter {
           this.handleTokenRefresh();
           return;
         }
-        this.logApiError('updateDevices error', error);
+        this.notePollFailure('updateDevices error', error);
       });
   }
 
@@ -2326,7 +2378,7 @@ class Navimow extends utils.Adapter {
       }
       await this.updateDevices();
     } catch (error) {
-      this.log.error('HTTP status poll failed (' + reason + '): ' + (error && error.message ? error.message : error));
+      this.notePollFailure('HTTP status poll failed (' + reason + ')', error);
     } finally {
       if (ownsLock && this.httpPollToken === token) {
         this.httpPollRunning = false;
