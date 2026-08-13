@@ -650,7 +650,17 @@ class Navimow extends utils.Adapter {
             return;
           }
           this.mqttErrorCount++;
+          // A broker that drops a connection is not something the user can do anything about,
+          // and it is over before they read the line: on 2026-08-13 the cloud closed the
+          // connection six times in 38 minutes and every one of them was back inside two.
+          // At error level each of those rings the alarm rules people hang off the log.
+          //
+          // The third in a row is a different matter - that is where the reconnect interval
+          // goes to ten minutes below, so it is the point at which the adapter stops keeping
+          // up with the mower. It is the one worth waking someone for.
           if (this.mqttErrorCount === 1) {
+            this.log.warn('MQTT error: ' + err.message);
+          } else if (this.mqttErrorCount === 3) {
             this.log.error('MQTT error: ' + err.message);
           } else {
             this.log.debug('MQTT error: ' + err.message);
