@@ -273,6 +273,14 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- (typhosj) Translate the admin settings into all eleven languages ioBroker asks for, from an `admin/i18n` folder instead of labels written into `jsonConfig.json`
+- (typhosj) Say the length of the access token in the debug log instead of the first twenty characters of it, and keep the body of a failed token refresh out of the log entirely
+- (typhosj) Put the device id through `FORBIDDEN_CHARS` before it becomes an object id, whether it came from the cloud or from an MQTT topic
+- (typhosj) Fix the type check and let CI run it, so it cannot go red again unnoticed
+- (typhosj) Require node.js 22, publish through npm's trusted publishing, and let the tests wait for lint and the type check
+
 ### 1.1.0-rc.0 (2026-08-17)
 
 - (typhosj) Report a cloud outage after three failed polls instead of the first one, and let a single 502 pass as a warning
