@@ -3,5 +3,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {},
   "include": ["**/*.js", "**/*.d.ts"],
-  "exclude": ["**/build", "node_modules/", "widgets/"]
+  // Tests are excluded: they reach into private fields through a bare object and rely on the
+  // mocha globals, neither of which this check can see. Mocha is what runs them.
+  "exclude": ["**/build", "node_modules/", "widgets/", "**/*.test.js"]
 }

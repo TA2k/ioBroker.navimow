@@ -338,6 +338,7 @@ class Navimow extends utils.Adapter {
     this.mqttErrorCount = 0;
     this.lastMqttCredentialRefresh = 0;
     this.tokenRefreshFailures = 0;
+    this.pollFailures = 0;
     this.canvasWarned = false;
     this.lastMqttMessage = 0;
     this.lastLocationMessage = {};
@@ -1496,7 +1497,8 @@ class Navimow extends utils.Adapter {
 
     return /** @type {Promise<void>} */ (new Promise((resolve) => {
       let resolved = false;
-      let timeoutHandle = null;
+      /** @type {ioBroker.Timeout | undefined} */
+      let timeoutHandle;
       const finish = () => {
         if (resolved) return;
         resolved = true;
@@ -1790,6 +1792,7 @@ class Navimow extends utils.Adapter {
    * @param {any} error the rejection, or what the API said instead of a reading
    */
   notePollFailure(what, error) {
+    // The || 0 is not redundant next to the constructor: the tests drive this on a bare object.
     this.pollFailures = (this.pollFailures || 0) + 1;
     if (this.pollFailures < POLL_FAILURES_UNTIL_ERROR) {
       this.logApiError(what, error, 'warn');
@@ -2260,6 +2263,7 @@ class Navimow extends utils.Adapter {
           // Prefer entries marked as PERCENTAGE; fall back to the first entry
           // (Segway's API only returns the battery percentage here in practice).
           if (deviceData.battery == null && Array.isArray(deviceData.capacityRemaining)) {
+            /** @type {number | null} */
             let v = null;
             for (const item of deviceData.capacityRemaining) {
               if (item && String(item.unit || '').toUpperCase() === 'PERCENTAGE') {
@@ -2555,9 +2559,9 @@ class Navimow extends utils.Adapter {
 }
 
 if (require.main !== module) {
-  module.exports = (options) => new Navimow(options);
-  // The class itself, so a test can drive a single method without an adapter instance.
-  module.exports.Navimow = Navimow;
+  // One assignment, so this stays a plain export: the class rides along on the factory, for a
+  // test that drives a single method without an adapter instance.
+  module.exports = Object.assign((options) => new Navimow(options), { Navimow });
 } else {
   new Navimow();
 }
