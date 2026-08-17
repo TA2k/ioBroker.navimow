@@ -34,6 +34,8 @@ function adapter(seed = {}) {
   Object.assign(fake, {
     log: { debug() {}, info() {}, warn() {}, error() {} },
     config: { mapEnabled: true },
+    // The real one comes from the adapter base class, which these tests never construct.
+    FORBIDDEN_CHARS: /[^._\-/ :!#$%&()+=@^{}|~\p{Ll}\p{Lu}\p{Nd}]+/gu,
     deviceArray: [DEVICE],
     // Recorded rather than ignored: a reading that arrived late must not reach the states
     // either, and this is the only place the payload gets written to them.
@@ -696,5 +698,22 @@ describe('a host without the canvas library', () => {
 
     expect(warnings).to.have.lengthOf(1);
     expect(warnings[0]).to.contain('no prebuild for this platform');
+  });
+});
+
+describe('a device id that ioBroker cannot use as an object id', () => {
+  it('replaces what is forbidden, and matches the same id off an MQTT topic', () => {
+    const fake = adapter();
+    // A star and a bracket are both forbidden in an object id; a hyphen is not.
+    const dirty = 'MOW*1[2]-A';
+    const clean = fake.deviceObjectId(dirty);
+    expect(clean).to.equal('MOW_1_2_-A');
+
+    // The whitelist in handleMqttMessage holds object ids, and the topic carries the raw one.
+    // Both go through deviceObjectId, so the message is recognised rather than dropped.
+    fake.deviceArray = [clean];
+    fake.locationHistory[clean] = [];
+    fake.handleMqttMessage(`downlink/vehicle/${dirty}/realtimeData/location`, Buffer.from(JSON.stringify([START])));
+    expect(fake.parsed).to.have.lengthOf(1);
   });
 });

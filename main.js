@@ -446,7 +446,7 @@ class Navimow extends utils.Adapter {
         this.session = tokenObj;
         this.setState('info.connection', true, true);
         this.log.info('Token loaded (expires_in: ' + (tokenObj.expires_in || 'unknown') + 's)');
-        this.log.debug('Access token starts with: ' + tokenObj.access_token.substring(0, 20) + '...');
+        this.log.debug('Access token loaded (' + tokenObj.access_token.length + ' characters)');
         await this.getDeviceList();
         this.log.debug('Device array: ' + JSON.stringify(this.deviceArray));
         await this.pollDevices('startup');
@@ -763,6 +763,19 @@ class Navimow extends utils.Adapter {
     return true;
   }
 
+  /**
+   * The object id of a device: what the cloud calls it, with anything ioBroker forbids in an
+   * id replaced. The id reaches the object tree straight from the API and from MQTT topics,
+   * and neither is ours to trust. FORBIDDEN_CHARS is the adapter base class's own pattern, so
+   * this agrees with json2iob, which writes the rest of the tree under the same rule.
+   *
+   * @param {string} deviceId as the API or an MQTT topic spells it
+   * @returns {string} the id its objects live under
+   */
+  deviceObjectId(deviceId) {
+    return String(deviceId).replace(this.FORBIDDEN_CHARS, '_');
+  }
+
   handleMqttMessage(topic, payload) {
     try {
       const parts = topic.split('/').filter((p) => p !== '');
@@ -771,7 +784,9 @@ class Navimow extends utils.Adapter {
         this.log.debug('MQTT unknown topic: ' + topic);
         return;
       }
-      const deviceId = parts[2];
+      // Through the same normalisation the device list went through, or the whitelist below
+      // would never match a device whose id had to be rewritten to become an object id.
+      const deviceId = this.deviceObjectId(parts[2]);
       const channel = parts[parts.length - 1];
 
       if (!this.deviceArray.includes(deviceId)) {
@@ -2018,7 +2033,10 @@ class Navimow extends utils.Adapter {
           this.log.debug('Token refresh succeeded (expires_in: ' + (res.data.expires_in || 'unknown') + 's)');
           return res.data;
         }
-        this.log.warn('Token refresh returned no token: ' + JSON.stringify(res.data));
+        // The API's own reason, never the body: a refresh response that is missing the access
+        // token can still be carrying the refresh token, and this line runs at warn level.
+        const why = res.data && (res.data.error_description || res.data.error || res.data.desc);
+        this.log.warn('Token refresh returned no token' + (why ? ': ' + why : ''));
         return null;
       })
       .catch((error) => {
@@ -2095,10 +2113,10 @@ class Navimow extends utils.Adapter {
 
         this.deviceArray = [];
         for (const device of devices) {
-          const id = device.id;
-          if (!id) {
+          if (!device.id) {
             continue;
           }
+          const id = this.deviceObjectId(device.id);
           this.deviceArray.push(id);
           const name = device.name || id;
 
@@ -2252,8 +2270,12 @@ class Navimow extends utils.Adapter {
         const devices = res.data.data?.payload?.devices || [];
 
         for (const deviceData of devices) {
-          const id = deviceData.id || deviceData.device_id;
-          if (!id || !this.deviceArray.includes(id)) {
+          const raw = deviceData.id || deviceData.device_id;
+          if (!raw) {
+            continue;
+          }
+          const id = this.deviceObjectId(raw);
+          if (!this.deviceArray.includes(id)) {
             continue;
           }
 
