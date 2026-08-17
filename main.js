@@ -2084,11 +2084,11 @@ class Navimow extends utils.Adapter {
    * two timers refreshing against each other.
    */
   scheduleTokenRefreshRetry() {
-    const wait = TOKEN_REFRESH_RETRY_MS[Math.min(this.tokenRefreshFailures, TOKEN_REFRESH_RETRY_MS.length - 1)];
+    const retryMs = TOKEN_REFRESH_RETRY_MS[Math.min(this.tokenRefreshFailures, TOKEN_REFRESH_RETRY_MS.length - 1)];
     this.tokenRefreshFailures++;
     this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
-    this.log.info(`Trying the token refresh again in ${Math.round(wait / 60000)} minute(s)`);
-    this.refreshTokenTimeout = this.setTimeout(() => this.handleTokenRefresh(), wait);
+    this.log.info(`Trying the token refresh again in ${Math.round(retryMs / 60000)} minute(s)`);
+    this.refreshTokenTimeout = this.setTimeout(() => this.handleTokenRefresh(), retryMs);
   }
 
   // ---- REST API ----
