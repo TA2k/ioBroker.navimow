@@ -273,7 +273,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.1.0-rc.0 (2026-08-17)
 
 - (typhosj) Report a cloud outage after three failed polls instead of the first one, and let a single 502 pass as a warning
 - (typhosj) Warn on a dropped MQTT connection and only report an error once it persists, because the broker takes most of them back within seconds
