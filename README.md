@@ -280,6 +280,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Put the device id through `FORBIDDEN_CHARS` before it becomes an object id, whether it came from the cloud or from an MQTT topic
 - (typhosj) Fix the type check and let CI run it, so it cannot go red again unnoticed
 - (typhosj) Require node.js 22, publish through npm's trusted publishing, and let the tests wait for lint and the type check
+- (typhosj) Move the oldest changelog entries to `CHANGELOG_OLD.md`, and add `@iobroker/adapter-dev` so the `translate` script has the tool it calls
 
 ### 1.1.0-rc.0 (2026-08-17)
 
@@ -323,9 +324,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (TA2k) Add MQTT location topic with real-time position tracking
 - (TA2k) Generic MQTT topic handling via wildcard subscription
 
-### 1.0.1 (2026-03-15)
-
-- (TA2k) initial release
+Older entries are in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
 ## License
 
