@@ -275,6 +275,15 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 -->
 ### **WORK IN PROGRESS**
 
+- (typhosj) Report a cloud outage after three failed polls instead of the first one, and let a single 502 pass as a warning
+- (typhosj) Warn on a dropped MQTT connection and only report an error once it persists, because the broker takes most of them back within seconds
+- (typhosj) Do not clear the map when the mower reports no task, which emptied the track of the last session overnight
+- (typhosj) Log a failed API call as one readable line instead of the HTML error page a gateway answers with
+- (typhosj) Draw the mower in the dock while the track is still empty, so it does not go missing from the picture after a session reset
+- (typhosj) Keep the charging station on the map through a session reset, so the map is not blank while the mower is still leaving the dock
+- (typhosj) Stop collecting positions while the mower stands in the dock, so its pose drift no longer grows the track and widens the map overnight
+- (typhosj) Keep the MQTT connection alive while the mower stands still, so the position stream no longer dies out silently after ten idle minutes
+- (typhosj) Ignore the all-zero posture a standing mower sends, so the marker no longer jumps off the map
 - (typhosj) Render a live mowing map as a PNG in `{deviceId}.map`, drawn in a fixed frame so the picture stays put while the mower is out (#7)
 - (typhosj) Keep the mowing track in `{deviceId}.mapTrack`, so the map survives an adapter restart instead of freezing on its last image (#7)
 - (typhosj) Decide a new mowing session by the mowing progress, so a charging break no longer throws away the track of a session that is still running (#23)
