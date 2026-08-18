@@ -717,3 +717,50 @@ describe('a device id that ioBroker cannot use as an object id', () => {
     expect(fake.parsed).to.have.lengthOf(1);
   });
 });
+
+describe('a payload key that ioBroker cannot use in an object id', () => {
+  it('cleans the keys before json2iob sees them, and leaves the values alone', () => {
+    const fake = adapter();
+    const clean = fake.sanitizeKeys({
+      'mow*State': 'isRunning',
+      'battery.level': 42,
+      nested: [{ 'a[0]': 'kept*as*is' }],
+    });
+
+    expect(Object.keys(clean)).to.deep.equal(['mow_State', 'battery_level', 'nested']);
+    // Only the ids are rewritten. A value keeps whatever the cloud sent.
+    expect(clean.battery_level).to.equal(42);
+    expect(clean.mow_State).to.equal('isRunning');
+    expect(clean.nested[0]).to.deep.equal({ 'a_0_': 'kept*as*is' });
+  });
+});
+
+describe('the status poll loop', () => {
+  it('arms the next poll only once the one before it came back, and not while unloading', async () => {
+    /** @type {Function[]} */
+    const armed = [];
+    /** @type {Function} */
+    let finishPoll;
+    const fake = Object.assign(Object.create(Navimow.prototype), {
+      unloading: false,
+      setTimeout: (/** @type {Function} */ fn) => armed.push(fn),
+      pollDevices: () => new Promise((resolve) => (finishPoll = resolve)),
+    });
+
+    fake.schedulePoll(1000, 'interval');
+    expect(armed).to.have.lengthOf(1);
+
+    const first = armed[0]();
+    // The poll is still out. On an interval the next one would already be due.
+    expect(armed).to.have.lengthOf(1);
+    finishPoll();
+    await first;
+    expect(armed).to.have.lengthOf(2);
+
+    fake.unloading = true;
+    const second = armed[1]();
+    finishPoll();
+    await second;
+    expect(armed).to.have.lengthOf(2);
+  });
+});

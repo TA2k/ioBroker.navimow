@@ -31,29 +31,29 @@
       },
       "1.0.1": {
         "en": "initial release",
-        "de": "erstausstrahlung",
-        "ru": "первоначальное освобождение",
-        "pt": "libertação inicial",
+        "de": "Erstveröffentlichung",
+        "ru": "первый выпуск",
+        "pt": "versão inicial",
         "nl": "eerste release",
-        "fr": "libération initiale",
-        "it": "rilascio iniziale",
-        "es": "liberación inicial",
-        "pl": "początkowe zwolnienie",
-        "uk": "початковий реліз",
-        "zh-cn": "初步释放"
+        "fr": "première version",
+        "it": "prima versione",
+        "es": "versión inicial",
+        "pl": "pierwsze wydanie",
+        "uk": "перший випуск",
+        "zh-cn": "首次发布"
       },
       "1.0.0": {
         "en": "initial release",
-        "de": "erstausstrahlung",
-        "ru": "первоначальное освобождение",
-        "pt": "libertação inicial",
+        "de": "Erstveröffentlichung",
+        "ru": "первый выпуск",
+        "pt": "versão inicial",
         "nl": "eerste release",
-        "fr": "libération initiale",
-        "it": "rilascio iniziale",
-        "es": "liberación inicial",
-        "pl": "początkowe zwolnienie",
-        "uk": "початковий реліз",
-        "zh-cn": "初步释放"
+        "fr": "première version",
+        "it": "prima versione",
+        "es": "versión inicial",
+        "pl": "pierwsze wydanie",
+        "uk": "перший випуск",
+        "zh-cn": "首次发布"
       }
     },
     "titleLang": {
@@ -124,8 +124,8 @@
       }
     ]
   },
-  "encryptedNative": [],
-  "protectedNative": [],
+  "encryptedNative": ["authCode"],
+  "protectedNative": ["authCode"],
   "native": {
     "authCode": "",
     "interval": 5,

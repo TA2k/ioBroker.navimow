@@ -26,6 +26,9 @@ const LOCATION_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
 // channel has been quiet for this long.
 const STATUS_STALE_MS = 15 * 60 * 1000;
 const STATUS_STALE_CHECK_MS = 60 * 1000;
+// A day, the same ceiling the admin UI offers. Beyond about 24.8 days a delay overflows
+// what setTimeout takes and fires immediately instead.
+const MAX_INTERVAL_MINUTES = 24 * 60;
 const ACTIVE_LOCATION_STATES = new Set(['isRunning', 'mowing', 'isMowing', 'isMapping', 'mapping']);
 
 // How long the MQTT state channel keeps the mower state to itself after it last spoke.
@@ -326,8 +329,7 @@ class Navimow extends utils.Adapter {
       timeout: 30000,
     });
     this.session = {};
-    this.updateInterval = null;
-    this.statusStaleInterval = null;
+    this.pollTimeout = null;
     this.lastStatusUpdate = 0;
     this.refreshTokenTimeout = null;
     this.refreshTimeout = undefined;
@@ -375,6 +377,11 @@ class Navimow extends utils.Adapter {
     if (!Number.isFinite(configuredInterval) || configuredInterval < 0) {
       this.log.info('Invalid interval, defaulting to 5 minutes');
       this.config.interval = 5;
+    } else if (configuredInterval > MAX_INTERVAL_MINUTES) {
+      // The admin UI stops at a day, but the value can also come from a script or a
+      // hand-edited instance object, and a delay past 2^31 ms fires a timer at once.
+      this.log.info(`Interval capped at ${MAX_INTERVAL_MINUTES} minutes`);
+      this.config.interval = MAX_INTERVAL_MINUTES;
     } else {
       this.config.interval = configuredInterval;
     }
@@ -395,13 +402,15 @@ class Navimow extends utils.Adapter {
     // Step 1: New auth code in config -> exchange for token
     if (this.config.authCode) {
       let authCode = this.config.authCode.trim();
-      this.log.debug('Auth code input: ' + authCode.substring(0, 20) + '...');
+      // Its length, not its first characters: the code buys a token, and a debug log is
+      // pasted into forum threads.
+      this.log.debug('Auth code input (' + authCode.length + ' characters)');
       // Extract code from full URL if user pasted the entire redirect URL
       if (authCode.startsWith('http')) {
         try {
           const parsed = new URL(authCode);
           authCode = parsed.searchParams.get('code') || authCode;
-          this.log.debug('Extracted code from URL: ' + authCode.substring(0, 20) + '...');
+          this.log.debug('Extracted code from URL (' + authCode.length + ' characters)');
         } catch {
           this.log.debug('Auth code is not a valid URL, using as-is');
         }
@@ -460,14 +469,14 @@ class Navimow extends utils.Adapter {
           this.log.info(
             'Periodic HTTP status polling active every ' + this.config.interval + ' minute(s). MQTT remains active for real-time updates.',
           );
-          this.updateInterval = this.setInterval(() => this.pollDevices('interval'), pollMs);
+          this.schedulePoll(pollMs, 'interval');
         } else {
           this.log.info(
             'Periodic HTTP status polling disabled (interval=0). Relying on MQTT, with an HTTP fallback poll after ' +
               Math.round(STATUS_STALE_MS / 60000) +
               ' minutes without a status update.',
           );
-          this.statusStaleInterval = this.setInterval(() => this.pollIfStatusStale(), STATUS_STALE_CHECK_MS);
+          this.schedulePoll(STATUS_STALE_CHECK_MS, 'status stale');
         }
 
         // Schedule token refresh
@@ -776,6 +785,32 @@ class Navimow extends utils.Adapter {
     return String(deviceId).replace(this.FORBIDDEN_CHARS, '_');
   }
 
+  /**
+   * A payload with every key put through the same rule, before json2iob makes object ids out
+   * of them. json2iob filters most of what it writes, but three of its paths hand a key
+   * straight to setState or extendObject - the plain key/value branch, the keyed string
+   * array and the two-key array case - so a key the cloud spells with a character ioBroker
+   * forbids would land as an id nobody can address. Cleaning them here means json2iob never
+   * sees one. A dot goes too: in an id it is a level of the tree, not a character.
+   *
+   * @param {any} value payload as it arrived
+   * @returns {any} the same payload, its keys usable as object ids
+   */
+  sanitizeKeys(value) {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.sanitizeKeys(entry));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+    /** @type {Record<string, any>} */
+    const result = {};
+    for (const [key, entry] of Object.entries(value)) {
+      result[this.deviceObjectId(key).replace(/\./g, '_')] = this.sanitizeKeys(entry);
+    }
+    return result;
+  }
+
   handleMqttMessage(topic, payload) {
     try {
       const parts = topic.split('/').filter((p) => p !== '');
@@ -867,7 +902,7 @@ class Navimow extends utils.Adapter {
       }
 
       const folderName = channel === 'state' ? 'status' : channel;
-      this.json2iob.parse(deviceId + '.' + folderName, data, {
+      this.json2iob.parse(deviceId + '.' + folderName, this.sanitizeKeys(data), {
         forceIndex: true,
         channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
         descriptions,
@@ -1126,27 +1161,6 @@ class Navimow extends utils.Adapter {
    * @param {string} deviceId
    * @param {string} vehicleState
    */
-  updateRemoteStates(deviceId, vehicleState) {
-    const stateToRemote = {
-      isRunning: 'start',
-      mowing: 'start',
-      isPaused: 'pause',
-      paused: 'pause',
-      isDocking: 'dock',
-      returning: 'dock',
-      isDocked: 'dock',
-      docked: 'dock',
-      charging: 'dock',
-      isIdle: 'stop',
-      isIdel: 'stop',
-      idle: 'stop',
-    };
-    const activeCmd = stateToRemote[vehicleState] || null;
-    for (const cmd of Object.keys(COMMAND_MAP)) {
-      this.setState(deviceId + '.remote.' + cmd, cmd === activeCmd, true);
-    }
-  }
-
   /**
    * How long a position may wait for its render. Checked here rather than trusted from the UI:
    * the value can also come from a script or a hand-edited instance object, and a zero would
@@ -2209,13 +2223,16 @@ class Navimow extends utils.Adapter {
             native: {},
           });
 
+          // There is no button.dock, and Refresh is not a mower command at all, so both take
+          // the plain role. A button is written, not read: ioBroker's rule for the role, and
+          // what the mower is doing is in status.vehicleState rather than in these.
           const remoteArray = [
-            { command: 'Refresh', name: 'Refresh status' },
-            { command: 'start', name: 'Start mowing' },
-            { command: 'stop', name: 'Stop mowing' },
-            { command: 'pause', name: 'Pause mowing' },
-            { command: 'resume', name: 'Resume mowing' },
-            { command: 'dock', name: 'Return to dock' },
+            { command: 'Refresh', name: 'Refresh status', role: 'button' },
+            { command: 'start', name: 'Start mowing', role: 'button.start' },
+            { command: 'stop', name: 'Stop mowing', role: 'button.stop' },
+            { command: 'pause', name: 'Pause mowing', role: 'button.pause' },
+            { command: 'resume', name: 'Resume mowing', role: 'button.resume' },
+            { command: 'dock', name: 'Return to dock', role: 'button' },
           ];
           for (const remote of remoteArray) {
             await this.setObjectNotExistsAsync(id + '.remote.' + remote.command, {
@@ -2223,15 +2240,21 @@ class Navimow extends utils.Adapter {
               common: {
                 name: remote.name,
                 type: 'boolean',
-                role: 'button',
+                role: remote.role,
                 def: false,
                 write: true,
-                read: true,
+                read: false,
               },
               native: {},
             });
+            // The buttons of an installation from before shipped role "button" with read:true,
+            // which the role does not allow. Only the three keys move; a name the user changed
+            // stays theirs.
+            await this.extendObjectAsync(id + '.remote.' + remote.command, {
+              common: { role: remote.role, read: false, write: true },
+            });
           }
-          this.json2iob.parse(id + '.general', device, { descriptions, states });
+          this.json2iob.parse(id + '.general', this.sanitizeKeys(device), { descriptions, states });
         }
         this.log.info('Found ' + devices.length + ' device(s)');
       })
@@ -2321,7 +2344,7 @@ class Navimow extends utils.Adapter {
           this.lastStatusUpdate = Date.now();
           this.setState(id + '.status.json', JSON.stringify(deviceData), true);
 
-          this.json2iob.parse(id + '.status', deviceData, {
+          this.json2iob.parse(id + '.status', this.sanitizeKeys(deviceData), {
             forceIndex: true,
             channelName: 'Status',
             descriptions,
@@ -2348,8 +2371,10 @@ class Navimow extends utils.Adapter {
    * MQTT-only fallback: pull the status over HTTP when the MQTT state channel has
    * gone quiet. Without this, battery and vehicleState freeze while the mower is
    * docked, because the broker only pushes the state channel during operation.
+   *
+   * @returns {Promise<void>} once the poll it decided on has come back
    */
-  pollIfStatusStale() {
+  async pollIfStatusStale() {
     const age = Date.now() - this.lastStatusUpdate;
     if (age < STATUS_STALE_MS) {
       return;
@@ -2358,7 +2383,31 @@ class Navimow extends utils.Adapter {
     // Count the attempt, not just the success. A failing poll otherwise leaves the
     // timestamp stale and this check would retry every minute instead of every 15.
     this.lastStatusUpdate = Date.now();
-    this.pollDevices('status stale');
+    await this.pollDevices('status stale');
+  }
+
+  /**
+   * The next poll, armed only once the one before it has come back. A cycle that outruns
+   * its interval - a cloud answering slowly, a network stack hung past the request timeout -
+   * would otherwise have the next one start on top of it.
+   *
+   * @param {number} ms how long to wait between the end of one poll and the start of the next
+   * @param {'interval' | 'status stale'} reason which of the two loops this is
+   */
+  schedulePoll(ms, reason) {
+    this.pollTimeout = this.setTimeout(async () => {
+      try {
+        if (reason === 'interval') {
+          await this.pollDevices('interval');
+        } else {
+          await this.pollIfStatusStale();
+        }
+      } finally {
+        if (!this.unloading) {
+          this.schedulePoll(ms, reason);
+        }
+      }
+    }, ms);
   }
 
   async pollDevices(reason) {
@@ -2483,12 +2532,8 @@ class Navimow extends utils.Adapter {
     const channel = parts[3];
     const command = parts[4];
 
-    // ack:true = device confirmed value -> reset remote buttons on state change
+    // ack:true = the adapter's own write, the mower reporting where it stands
     if (state.ack) {
-      if (channel === 'status' && (command === 'vehicleState' || command === 'state' || command === 'status')) {
-        const newState = String(state.val);
-        this.updateRemoteStates(deviceId, newState);
-      }
       // Only track vehicleState for map history reset to avoid cross-field false transitions
       if (channel === 'status' && command === 'vehicleState') {
         const newState = String(state.val);
@@ -2561,8 +2606,7 @@ class Navimow extends utils.Adapter {
       this.unloading = true;
       this.setState('info.connection', false, true);
       this.disconnectMqtt();
-      this.updateInterval && this.clearInterval(this.updateInterval);
-      this.statusStaleInterval && this.clearInterval(this.statusStaleInterval);
+      this.pollTimeout && this.clearTimeout(this.pollTimeout);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);
       this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
       for (const timeout of Object.values(this.mapRenderTimeout)) {

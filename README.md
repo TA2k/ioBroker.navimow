@@ -17,7 +17,9 @@
 
 ## Navimow Adapter for ioBroker
 
-ioBroker adapter for Segway Navimow robotic mowers. Uses the official [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) REST API and MQTT for real-time updates.
+ioBroker adapter for [Segway Navimow](https://navimow.segway.com/) robotic mowers. Uses the official [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) REST API and MQTT for real-time updates.
+
+The adapter itself runs on every platform ioBroker runs on. The optional mowing map needs [@napi-rs/canvas](https://github.com/Brooooooklyn/canvas), which ships prebuilt binaries for Linux (glibc and musl), Windows and macOS on x64 and arm64. Where no prebuild fits the host, the library is simply not loaded: the adapter logs one warning, the map stays empty and everything else keeps working.
 
 ## Features
 
@@ -37,16 +39,16 @@ This adapter uses Sentry libraries to automatically report exceptions and code e
 ## Setup
 
 1. Open the adapter settings in ioBroker Admin
-2. Click **"Navimow Login öffnen"** to open the Navimow login page
+2. Click **"Open Navimow Login"** to open the Navimow login page
 3. Login with your Navimow account
-4. After login the browser shows **"Seite nicht erreichbar"** - this is expected
+4. After login the browser shows a "page cannot be reached" error - this is expected
 5. Copy the complete URL from the browser address bar (contains `?code=XXXXX`)
 6. Paste the URL into the **Authorization Code** field and save
 7. The adapter exchanges the code for a token and starts automatically
 
 The token is refreshed automatically. A re-login is only needed if the refresh token expires.
 
-The **Update interval** setting defines the periodic HTTP status polling interval in minutes (minimum: 1 minute). MQTT stays active in parallel for real-time updates.
+The **HTTP polling interval** setting defines the periodic HTTP status polling interval in minutes (0 disables it, one day is the maximum). MQTT stays active in parallel for real-time updates. A poll is only armed once the one before it has come back, so a slow cloud cannot make two polls run at the same time.
 
 Setting the interval to `0` disables periodic polling and relies on MQTT alone. Because the broker only pushes the `state` channel while the mower is operating, the adapter still performs a single HTTP status poll whenever no MQTT status update has arrived for 15 minutes. Without that fallback, battery and `vehicleState` would keep their last values for hours while the mower is docked and charging.
 
@@ -102,12 +104,14 @@ on({ id: 'navimow.0.DEVICE_ID.status.vehicleState', change: 'any' }, (obj) => {
 | ---------------- | ------------------------------- |
 | `remote.Refresh` | Trigger a manual status refresh |
 | `remote.start`   | Start mowing                    |
-| `remote.stop`    | Stop mowing                     |
+| `remote.stop`    | Pause mowing (see below)        |
 | `remote.pause`   | Pause mowing                    |
 | `remote.resume`  | Resume mowing                   |
 | `remote.dock`    | Return to dock                  |
 
-Remote states reflect the current device state with `ack:true`. For example, when the mower is mowing, `remote.start` is `true`.
+These are buttons: they are written, not read. What the mower is doing is in `status.vehicleState`.
+
+`remote.stop` pauses the job, it does not end it — the public API has no "end task", and `start` resumes the task the app created rather than starting a new one. Resetting the mowing progress is an app-only feature.
 
 ### Location
 
@@ -275,6 +279,12 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 -->
 ### **WORK IN PROGRESS**
 
+- (typhosj) The remote controls are buttons now: they are written, not read, and no longer carry the mower state, which `status.vehicleState` says anyway
+- (typhosj) Put the keys of every cloud payload through `FORBIDDEN_CHARS` before `json2iob` makes object ids of them, so a key the API spells with a forbidden character cannot land as an id nobody can address
+- (typhosj) Arm the next status poll only once the one before it has come back, instead of on a fixed interval
+- (typhosj) Cap the polling interval at a day in the adapter too, not only in the settings dialog
+- (typhosj) Keep the authorization code out of the debug log and store it encrypted and protected
+- (typhosj) Say in the README that the mowing map needs a prebuild of `@napi-rs/canvas`, that `stop` pauses rather than ends the job, and drop the German quotes from the setup steps
 - (typhosj) Translate the admin settings into all eleven languages ioBroker asks for, from an `admin/i18n` folder instead of labels written into `jsonConfig.json`
 - (typhosj) Say the length of the access token in the debug log instead of the first twenty characters of it, and keep the body of a failed token refresh out of the log entirely
 - (typhosj) Put the device id through `FORBIDDEN_CHARS` before it becomes an object id, whether it came from the cloud or from an MQTT topic
