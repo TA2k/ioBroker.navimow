@@ -277,6 +277,10 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- (typhosj) Register a release in Sentry only where a token for it is configured: without one `sentry-cli` answers 401 and fails the whole deploy job, after npm has already published
+
 ### 1.1.0 (2026-08-18)
 
 - (typhosj) The remote controls are buttons now: they are written, not read, and no longer carry the mower state, which `status.vehicleState` says anyway

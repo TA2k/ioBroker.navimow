@@ -83,7 +83,12 @@ jobs:
           # When using Sentry for error reporting, Sentry can be informed about new releases
           # To enable create a API-Token in Sentry (User settings, API keys)
           # Enter this token as a GitHub secret (with name SENTRY_AUTH_TOKEN) in the repository options
-          sentry: true
+          #
+          # Only where that secret exists: without it sentry-cli answers 401 and fails the whole
+          # deploy job - after npm has already published - which is what happened to v1.1.0.
+          # Error reporting itself needs none of this, it runs off the DSN in io-package.json;
+          # this step only registers the released version in Sentry.
+          sentry: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
           sentry-token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry-project: "iobroker-navimow"
           sentry-version-prefix: "iobroker.navimow"
