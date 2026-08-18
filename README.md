@@ -277,7 +277,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.1.0 (2026-08-18)
 
 - (typhosj) The remote controls are buttons now: they are written, not read, and no longer carry the mower state, which `status.vehicleState` says anyway
 - (typhosj) Put the keys of every cloud payload through `FORBIDDEN_CHARS` before `json2iob` makes object ids of them, so a key the API spells with a forbidden character cannot land as an id nobody can address
@@ -333,6 +333,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 
 - (TA2k) Add MQTT location topic with real-time position tracking
 - (TA2k) Generic MQTT topic handling via wildcard subscription
+
 
 Older entries are in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
