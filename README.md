@@ -277,7 +277,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.1.1 (2026-08-18)
 
 - (typhosj) Register a release in Sentry only where a token for it is configured: without one `sentry-cli` answers 401 and fails the whole deploy job, after npm has already published
 
@@ -337,6 +337,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 
 - (TA2k) Add MQTT location topic with real-time position tracking
 - (TA2k) Generic MQTT topic handling via wildcard subscription
+
 
 
 Older entries are in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
