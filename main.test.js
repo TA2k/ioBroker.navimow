@@ -61,6 +61,8 @@ function adapter(seed = {}) {
     sessionStart: {},
     lastMowingPercentage: {},
     lastSubtotalArea: {},
+    lastProgressAt: {},
+    lastPartitionIds: {},
     lastLocationAt: {},
     lastVehicleState: {},
     dockPosition: {},
@@ -169,6 +171,9 @@ describe('mowing session detection', () => {
     send(fake, [{ ...FIRST_PERCENT, mowingPercentage: 58, subtotalArea: '244.2' }]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
     expect(fake.lastSubtotalArea[DEVICE]).to.equal(244.2);
+    // Dated, because a progress that is never dated reads as stale and would have the next
+    // docking clear a session that is only pausing to charge.
+    expect(fake.lastProgressAt[DEVICE]).to.be.closeTo(Date.now(), 5000);
   });
 
   it('ignores a progress sample the broker delivered late', () => {
@@ -284,6 +289,114 @@ describe('mowing session detection', () => {
 
     send(fake, [{ mowingPercentage: 0, subtotalArea: '0.0', type: 2 }]);
     expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
+  });
+});
+
+describe('a lawn split into zones', () => {
+  // Copied from the debug log of the first zone run (2026-08-25): the mower names the zones it
+  // is mowing every five minutes in a message of its own, and sends no mowing progress at all.
+  const ZONE = (/** @type {number[]} */ ids, /** @type {number} */ time) => ({
+    partitionIds: ids,
+    time,
+    type: 3,
+  });
+
+  it('starts a new session when the mower moves on to another zone', () => {
+    const fake = adapter({
+      locationHistory: {
+        [DEVICE]: [
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+        ],
+      },
+      lastPartitionIds: { [DEVICE]: '66' },
+    });
+
+    send(fake, [ZONE([67], 1_000_000)]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
+    expect(fake.lastPartitionIds[DEVICE]).to.equal('67');
+  });
+
+  it('keeps the track while the same zone is being mowed', () => {
+    const fake = adapter({
+      locationHistory: {
+        [DEVICE]: [
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+        ],
+      },
+      lastPartitionIds: { [DEVICE]: '66' },
+    });
+
+    send(fake, [ZONE([66], 1_000_000)]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(2);
+  });
+
+  it('takes the first zones it hears of for the ones being mowed, not for a change', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] } });
+
+    send(fake, [ZONE([66], 1_000_000)]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
+    expect(fake.lastPartitionIds[DEVICE]).to.equal('66');
+  });
+
+  it('passes over the message the mower sends from the dock, which names no zone', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] },
+      lastPartitionIds: { [DEVICE]: '66' },
+    });
+
+    send(fake, [{ time: 1_000_000, type: 3 }]);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(1);
+    expect(fake.lastPartitionIds[DEVICE]).to.equal('66');
+  });
+});
+
+describe('a mowing progress that has gone quiet', () => {
+  const HOUR = 60 * 60 * 1000;
+
+  /**
+   * The mower leaving the dock, with the last mowing progress dated as given.
+   *
+   * @param {number|null} progressAt when the last progress arrived, null for never
+   * @returns {{fake: any, reasons: string[]}} the adapter and what it said when it cleared
+   */
+  function leavingTheDock(progressAt) {
+    const fake = adapter({
+      locationHistory: {
+        [DEVICE]: [
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+        ],
+      },
+      lastMowingPercentage: progressAt == null ? {} : { [DEVICE]: 80 },
+      lastProgressAt: progressAt == null ? {} : { [DEVICE]: progressAt },
+      lastVehicleState: { [DEVICE]: 'isDocked' },
+    });
+    /** @type {string[]} */
+    const reasons = [];
+    fake.resetMap = (/** @type {string} */ _id, /** @type {string} */ reason) => reasons.push(reason);
+    fake.onStateChange(`navimow.0.${DEVICE}.status.vehicleState`, { val: 'isRunning', ack: true });
+    return { fake, reasons };
+  }
+
+  it('clears the map when the last progress is older than a session can be', () => {
+    const { fake, reasons } = leavingTheDock(Date.now() - 12 * 24 * HOUR);
+    expect(reasons).to.have.lengthOf(1);
+    expect(reasons[0]).to.contain('288 h old');
+    expect(fake.sessionStart[DEVICE]).to.equal(undefined);
+  });
+
+  it('waits for the progress to speak while it is still current', () => {
+    const { fake, reasons } = leavingTheDock(Date.now() - HOUR);
+    expect(reasons).to.have.lengthOf(0);
+    expect(fake.sessionStart[DEVICE].index).to.equal(2);
+  });
+
+  it('still clears for a mower that never reported one', () => {
+    const { reasons } = leavingTheDock(null);
+    expect(reasons).to.have.lengthOf(1);
+    expect(reasons[0]).to.contain('no mowing progress reported');
   });
 });
 

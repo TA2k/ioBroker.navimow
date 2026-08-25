@@ -58,6 +58,23 @@ const TOKEN_REFRESH_RETRY_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 6
 // interruptions for the same reason, so resuming out of them keeps the track collected so far.
 const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 
+// How long a mowing progress stays worth believing. Past this, a mower leaving the dock is
+// taken for a new session - the same answer a mower that never reports a progress at all gets.
+//
+// A lawn split into zones is why. A partition task sends no `type: 2` message whatsoever:
+// measured on 2026-08-25 over a zone run of an hour and a half, not one, where a whole-lawn
+// session sends one per percent, about every two minutes. The last percentage on record was
+// twelve days old, and being neither null nor falling it kept the map of a session from
+// another fortnight on screen while the mower mowed a zone of that lawn every day.
+//
+// Six hours sits far past any charging break - a live session cannot fall this quiet - and far
+// short of the day between two mowings.
+//
+// ponytail: a zone task that breaks off to charge for longer than this comes back reading as a
+// new session and loses what it collected before docking. The battery at the moment of docking
+// is what tells a break from a fresh start, if that ever proves worth the code.
+const MOWING_PROGRESS_STALE_MS = 6 * 60 * 60 * 1000;
+
 // How long the mowing progress has to say what a mower leaving the dock is doing. It keeps
 // reporting the progress of the session before for about a minute, so the answer is waited
 // for rather than guessed - but not for ever, or a start never answered would spare every
@@ -352,6 +369,11 @@ class Navimow extends utils.Adapter {
     this.trackTolerance = {};
     this.lastMowingPercentage = {};
     this.lastSubtotalArea = {};
+    // When a mowing progress last arrived, so an old one stops standing in for a live session.
+    // It travels with the track, because a restart must not make it look fresh.
+    this.lastProgressAt = {};
+    // The zones a partition task last named, joined into one string to compare.
+    this.lastPartitionIds = {};
     this.lastLocationAt = {};
     this.sessionStart = {};
     this.lastStateChannelAt = {};
@@ -959,6 +981,25 @@ class Navimow extends utils.Adapter {
     // What does not tell the two apart is the message itself: `action: -1` and a
     // `mapWorkPosition` starting FFFFFFFF ride on the announcement of a new task and on
     // the first message after a charging break alike. Only the numbers decide.
+    // The zones a partition task names itself. A lawn split into zones reports no mowing
+    // progress at all, so a `partitionIds` that changes is the only thing left that says one
+    // zone has given way to another - and what was driven in the zone before belongs to the
+    // session that ended. The field rides a message of its own, every five minutes and only
+    // while a task runs; the mower in the dock sends the same message without it, which says
+    // nothing and is passed over.
+    for (const point of points) {
+      if (!Array.isArray(point?.partitionIds) || !point.partitionIds.length) continue;
+      const zones = point.partitionIds.join(',');
+      const before = this.lastPartitionIds[deviceId];
+      this.lastPartitionIds[deviceId] = zones;
+      // Only a change away from zones already known: the first message of a start says which
+      // zones are being mowed, not that they are new.
+      if (before != null && before !== zones) {
+        this.resetMap(deviceId, `mowing zones changed (${before} -> ${zones})`);
+        delete this.sessionStart[deviceId];
+      }
+    }
+
     const pendingStart = this.sessionStart[deviceId];
     let resetAt = -1;
     let resetReason = '';
@@ -970,6 +1011,9 @@ class Navimow extends utils.Adapter {
     // of its own. Without this the value carried over from the last one would be reported
     // and stored again with every position, as if the mower had just said it.
     let reported = false;
+    // Whether this message carried a progress of either kind at all - which is what dates the
+    // last one. A percentage that is only carried over says nothing about now.
+    let sawProgress = false;
     let progress = this.lastMowingPercentage[deviceId];
     let area = this.lastSubtotalArea[deviceId];
     for (let i = 0; i < points.length; i++) {
@@ -993,6 +1037,7 @@ class Navimow extends utils.Adapter {
       const mowed = p.subtotalArea === '' || p.subtotalArea == null ? NaN : Number(p.subtotalArea);
       const hasArea = Number.isFinite(mowed);
       if (!hasPercentage && !hasArea) continue;
+      sawProgress = true;
       if (hasPercentage) {
         reported = true;
         // A progress of zero only starts a session while there is nothing to compare it
@@ -1051,6 +1096,9 @@ class Navimow extends utils.Adapter {
     }
     if (area != null) {
       this.lastSubtotalArea[deviceId] = area;
+    }
+    if (sawProgress) {
+      this.lastProgressAt[deviceId] = Date.now();
     }
     if (resetAt >= 0) {
       this.resetMap(deviceId, resetReason, pendingStart?.index);
@@ -1454,6 +1502,9 @@ class Navimow extends utils.Adapter {
       // The area travels for the same reason, and it is the field that spots the restart
       // first. A track written before it did simply comes back without one.
       area: this.lastSubtotalArea[deviceId] ?? null,
+      // When that progress arrived. Without it, a percentage from a fortnight ago comes back
+      // off disk looking like the one of the session about to start.
+      progressAt: this.lastProgressAt[deviceId] ?? null,
       points: points.map((p) => {
         const pair = [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100];
         // The heading is only read off the last position, but carrying it on every one keeps
@@ -1499,6 +1550,14 @@ class Navimow extends utils.Adapter {
     }
     if (Number.isFinite(track.area)) {
       this.lastSubtotalArea[deviceId] = track.area;
+    }
+    if (Number.isFinite(track.progressAt)) {
+      this.lastProgressAt[deviceId] = track.progressAt;
+    } else if (this.lastMowingPercentage[deviceId] != null) {
+      // A track written before the timestamp travelled with it. Dated now rather than left
+      // unknown: unknown reads as stale, and the first docking after the update would clear a
+      // session the restart only interrupted. It ages out by itself within six hours.
+      this.lastProgressAt[deviceId] = Date.now();
     }
     const points = track.points
       .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
@@ -1787,6 +1846,31 @@ class Navimow extends utils.Adapter {
       return;
     }
     this.setState(deviceId + '.map', '', true);
+  }
+
+  /**
+   * Clear the map on request: the track, the picture, the frame, and everything the session
+   * decision carries over from the session before. For what the adapter cannot know by itself -
+   * a lawn re-mapped or split into zones, where the mower stops reporting the progress the
+   * automatic reset reads.
+   *
+   * The frame goes too, which no automatic reset touches: it describes the garden, and a garden
+   * that has just been re-drawn is exactly when it is worth measuring again.
+   *
+   * @param {string} deviceId device
+   */
+  resetMapByHand(deviceId) {
+    delete this.lastMowingPercentage[deviceId];
+    delete this.lastSubtotalArea[deviceId];
+    delete this.lastProgressAt[deviceId];
+    delete this.lastPartitionIds[deviceId];
+    delete this.sessionStart[deviceId];
+    delete this.mapFrame[deviceId];
+    this.setState(deviceId + '.mapFrame', '', true);
+    this.resetMap(deviceId, 'asked for by hand');
+    // resetMap draws again only where it had a track to clear, so on an empty one the picture
+    // on display would still be the old one.
+    this.renderMapNow(deviceId);
   }
 
   /**
@@ -2233,6 +2317,9 @@ class Navimow extends utils.Adapter {
             { command: 'pause', name: 'Pause mowing', role: 'button.pause' },
             { command: 'resume', name: 'Resume mowing', role: 'button.resume' },
             { command: 'dock', name: 'Return to dock', role: 'button' },
+            // Only where there is a map to reset. A button for a feature that is switched off is
+            // clutter, the same rule the map states above follow.
+            ...(this.config.mapEnabled ? [{ command: 'resetMap', name: 'Reset the mowing map', role: 'button' }] : []),
           ];
           for (const remote of remoteArray) {
             await this.setObjectNotExistsAsync(id + '.remote.' + remote.command, {
@@ -2546,14 +2633,23 @@ class Navimow extends utils.Adapter {
         // started, locating the charging station - is the map's business and stops with it.
         if (newState !== prevState && this.config.mapEnabled) {
           if (SESSION_END_STATES.has(prevState) && this.isLocationActiveState(newState)) {
-            if (this.lastMowingPercentage[deviceId] == null) {
-              // Fallback for mowers that never send a mowing progress with their positions:
-              // without one nothing would ever clear the map and the tracks of all sessions
-              // would pile up in the same picture. Where there is a progress it decides alone -
-              // it can tell a resumed session from a new one, which the state cannot.
+            // Fallback for mowers that never send a mowing progress with their positions, and
+            // for the ones that have stopped: without one nothing would ever clear the map and
+            // the tracks of all sessions would pile up in the same picture. A progress old
+            // enough to belong to a session long over cannot tell a new session from a resumed
+            // one either, so it counts for as little as none at all - see
+            // MOWING_PROGRESS_STALE_MS, which is what a lawn split into zones leaves behind. A
+            // progress that is current decides alone.
+            const progressAt = this.lastProgressAt[deviceId];
+            const staleFor =
+              this.lastMowingPercentage[deviceId] == null || progressAt == null ? null : Date.now() - progressAt;
+            if (staleFor == null || staleFor > MOWING_PROGRESS_STALE_MS) {
               this.resetMap(
                 deviceId,
-                `new mowing session ("${prevState}" -> "${newState}"), no mowing progress reported`,
+                `new mowing session ("${prevState}" -> "${newState}"), ` +
+                  (staleFor == null
+                    ? 'no mowing progress reported'
+                    : `the last mowing progress is ${Math.round(staleFor / (60 * 60 * 1000))} h old`),
               );
             } else {
               // The mower is leaving the dock, and whether that starts a new session or carries
@@ -2590,6 +2686,11 @@ class Navimow extends utils.Adapter {
 
     if (command === 'Refresh') {
       this.pollDevices('manual refresh');
+      return;
+    }
+
+    if (command === 'resetMap') {
+      this.resetMapByHand(deviceId);
       return;
     }
 

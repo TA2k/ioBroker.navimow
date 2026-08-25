@@ -100,16 +100,19 @@ on({ id: 'navimow.0.DEVICE_ID.status.vehicleState', change: 'any' }, (obj) => {
 
 ### Remote Controls
 
-| State            | Description                     |
-| ---------------- | ------------------------------- |
-| `remote.Refresh` | Trigger a manual status refresh |
-| `remote.start`   | Start mowing                    |
-| `remote.stop`    | Pause mowing (see below)        |
-| `remote.pause`   | Pause mowing                    |
-| `remote.resume`  | Resume mowing                   |
-| `remote.dock`    | Return to dock                  |
+| State             | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `remote.Refresh`  | Trigger a manual status refresh                      |
+| `remote.start`    | Start mowing                                         |
+| `remote.stop`     | Pause mowing (see below)                             |
+| `remote.pause`    | Pause mowing                                         |
+| `remote.resume`   | Resume mowing                                        |
+| `remote.dock`     | Return to dock                                       |
+| `remote.resetMap` | Clear the mowing map (only with the map switched on) |
 
 These are buttons: they are written, not read. What the mower is doing is in `status.vehicleState`.
+
+`remote.resetMap` throws away the track, the picture and the frame of that device and starts the map over. It is there for what the adapter cannot know by itself — a lawn re-mapped or split into zones — and it is the only reset that drops the frame as well: the frame describes the garden, and a garden that has just been re-drawn is exactly when it is worth measuring again.
 
 `remote.stop` pauses the job, it does not end it — the public API has no "end task", and `start` resumes the task the app created rather than starting a new one. Resetting the mowing progress is an app-only feature.
 
@@ -158,7 +161,9 @@ Every reading of the location stream is believed only while it is the newest of 
 
 Until one of the two answers, the adapter notes where the track stands when the mower leaves, so the positions driven in the meantime survive the reset instead of being cleared away with the session that ended. If nothing ever answers, the start counts as a continuation after five minutes and the track is kept.
 
-The track behind it is kept in `{deviceId}.mapTrack` as JSON, `{ "percentage": 42, "area": 176.5, "points": [[x, y], …] }`, with the positions in mower coordinates rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. Progress and mowed area are stored with it because otherwise a restart could not tell a new session from a resumed one; a track written by an older version does not carry the progress and is therefore dropped once, on the first start after the update, so the map stays empty until the mower drives again. It is cleared together with the map when a new mowing session starts.
+A lawn split into zones reports neither. A partition task sends no progress message at all — measured over a zone run of an hour and a half, not one, where a whole-lawn session sends one about every two minutes — so the last progress on record can be days old while the mower mows a zone every day. Two things therefore stand in for it. The zones the mower names in `location.partitionIds` start a new session when they change, one zone giving way to another. And a progress older than six hours no longer counts as one: past that, the mower leaving the dock clears the map, exactly as it does for a mower that never reported a progress in the first place. Six hours is far past any charging break — a live session cannot fall that quiet — and far short of the day between two mowings. What it costs: a zone task that breaks off to charge for longer than that comes back reading as a new session and loses the track it had collected. `remote.resetMap` is there for whatever neither rule catches.
+
+The track behind it is kept in `{deviceId}.mapTrack` as JSON, `{ "percentage": 42, "area": 176.5, "progressAt": 1787650712963, "points": [[x, y], …] }`, with the positions in mower coordinates rounded to centimetres. It is written at most every 30 seconds while positions are coming in, and once more when the adapter stops, and it is read back on start — so after a restart the map shows the session so far instead of staying frozen on its last image until the mower moves again. Progress, mowed area and the time the progress arrived are stored with it because otherwise a restart could not tell a new session from a resumed one, nor a progress that is current from one left over from a session long finished; a track written by an older version does not carry the progress and is therefore dropped once, on the first start after the update, so the map stays empty until the mower drives again. It is cleared together with the map when a new mowing session starts.
 
 #### Track Style
 
@@ -277,6 +282,13 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+
+### **WORK IN PROGRESS**
+
+- (typhosj) Start a new mowing session when the mower moves on to another zone, which a lawn split into zones announces in `location.partitionIds`
+- (typhosj) Stop letting a mowing progress from a session long over hold the map of that session on screen: past six hours it counts for as little as none at all, and the mower leaving the dock clears the map. A zone task reports no progress whatsoever, so without this the map of the last whole-lawn session stayed up while the mower mowed a zone of it every day
+- (typhosj) Add `remote.resetMap`, which clears the track, the picture and the frame — for a lawn re-mapped or split into zones, where the adapter cannot see that a session ended
+
 ### 1.1.1 (2026-08-18)
 
 - (typhosj) Register a release in Sentry only where a token for it is configured: without one `sentry-cli` answers 401 and fails the whole deploy job, after npm has already published
