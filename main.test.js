@@ -544,6 +544,29 @@ describe('the map reset', () => {
     expect(written).to.not.have.property(`${DEVICE}.location.mowingWeekArea`);
   });
 
+  it('by hand, clears the frame and the progress states as well', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] },
+      lastMowingPercentage: { [DEVICE]: 80 },
+      lastProgressAt: { [DEVICE]: Date.now() },
+      mapFrame: { [DEVICE]: { minX: -20, maxX: 14, minY: -2, maxY: 30 } },
+    });
+    /** @type {Record<string, any>} */
+    const written = {};
+    fake.setState = (/** @type {string} */ id, /** @type {any} */ val) => (written[id] = val);
+    fake.renderMapNow = () => {};
+
+    fake.resetMapByHand(DEVICE);
+    expect(fake.locationHistory[DEVICE]).to.have.lengthOf(0);
+    expect(fake.mapFrame[DEVICE]).to.equal(undefined);
+    expect(fake.lastMowingPercentage[DEVICE]).to.equal(undefined);
+    expect(fake.lastProgressAt[DEVICE]).to.equal(undefined);
+    expect(written[`${DEVICE}.mapFrame`]).to.equal('');
+    // Zeroed out of the value that was still remembered, before the reset forgot it.
+    expect(written[`${DEVICE}.location.mowingPercentage`]).to.equal(0);
+    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal('0.0');
+  });
+
   it('writes no progress state for a mower that never reported one', () => {
     const fake = adapter({ locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] } });
     /** @type {string[]} */

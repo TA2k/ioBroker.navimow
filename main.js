@@ -1861,6 +1861,10 @@ class Navimow extends utils.Adapter {
    * @param {string} deviceId device
    */
   resetMapByHand(deviceId) {
+    // Before the progress is forgotten: what is displayed is put back to zero out of the value
+    // remembered here, and a reset by hand that dropped it first would leave the states of the
+    // session that ended standing beside an empty map.
+    this.clearSessionProgressStates(deviceId);
     delete this.lastMowingPercentage[deviceId];
     delete this.lastSubtotalArea[deviceId];
     delete this.lastProgressAt[deviceId];
