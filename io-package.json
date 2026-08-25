@@ -1,7 +1,7 @@
 {
   "common": {
     "name": "navimow",
-    "version": "1.1.1",
+    "version": "1.1.2-rc.0",
     "news": {
       "1.1.1": {
         "en": "Register a release in Sentry only where a token for it is configured: without one `sentry-cli` answers 401 and fails the whole deploy job, after npm has already published",
