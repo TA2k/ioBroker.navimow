@@ -526,6 +526,33 @@ describe('the map reset', () => {
     fake.resetMap(DEVICE, 'test');
     expect(blanked).to.equal(true);
   });
+
+  it('puts the progress of the session that ended back to zero where it is displayed', () => {
+    const fake = adapter({
+      locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] },
+      lastMowingPercentage: { [DEVICE]: 80 },
+    });
+    /** @type {Record<string, any>} */
+    const written = {};
+    fake.setState = (/** @type {string} */ id, /** @type {any} */ val) => (written[id] = val);
+
+    fake.resetMap(DEVICE, 'test');
+    expect(written[`${DEVICE}.location.mowingPercentage`]).to.equal(0);
+    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal('0.0');
+    expect(written[`${DEVICE}.location.currentMowProgress`]).to.equal(0);
+    // The week is not a session and nothing here resets it.
+    expect(written).to.not.have.property(`${DEVICE}.location.mowingWeekArea`);
+  });
+
+  it('writes no progress state for a mower that never reported one', () => {
+    const fake = adapter({ locationHistory: { [DEVICE]: [{ x: 1, y: 1 }] } });
+    /** @type {string[]} */
+    const written = [];
+    fake.setState = (/** @type {string} */ id) => written.push(id);
+
+    fake.resetMap(DEVICE, 'test');
+    expect(written.filter((id) => id.startsWith(`${DEVICE}.location.`))).to.have.lengthOf(0);
+  });
 });
 
 describe('a mower standing in the dock', () => {

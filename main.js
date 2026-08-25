@@ -1818,6 +1818,7 @@ class Navimow extends utils.Adapter {
     this.locationHistory[deviceId] = keep;
     // A new session starts on the full budget, so it is collected at full detail again.
     delete this.trackTolerance[deviceId];
+    this.clearSessionProgressStates(deviceId);
     // Unconditionally, and before the guard below: an empty history says nothing about what
     // is on disk, and a track left there would come back on the next start after having
     // been cleared here.
@@ -1871,6 +1872,33 @@ class Navimow extends utils.Adapter {
     // resetMap draws again only where it had a track to clear, so on an empty one the picture
     // on display would still be the old one.
     this.renderMapNow(deviceId);
+  }
+
+  /**
+   * Put the progress a session is measured by back to zero where it is displayed. The mower
+   * only ever raises these, and a zone task stops reporting them altogether, so what stood in
+   * them was the last word of a session days over - shown as this week and today next to a map
+   * that had just been cleared.
+   *
+   * Zero is what a session that is only beginning has mowed. Where the reset came out of a
+   * location message that does carry a progress, the payload writes the real values over these
+   * a moment later - the states are filled after the session decision, out of the same message -
+   * so only the readings nobody sends stay at zero.
+   *
+   * `mowingWeekArea` is left alone: it counts the week, not the session, and no session start
+   * resets a week.
+   *
+   * @param {string} deviceId device
+   */
+  clearSessionProgressStates(deviceId) {
+    // Only where a progress has been reported at least once, which is what says these states
+    // exist. Writing them into being would put a reading on the tree that no mower ever sent.
+    if (this.lastMowingPercentage[deviceId] == null) return;
+    this.setState(deviceId + '.location.mowingPercentage', 0, true);
+    // The mower sends the area as a string and the hundredths of a percent as an integer, and
+    // json2iob built the states in its image.
+    this.setState(deviceId + '.location.subtotalArea', '0.0', true);
+    this.setState(deviceId + '.location.currentMowProgress', 0, true);
   }
 
   /**
