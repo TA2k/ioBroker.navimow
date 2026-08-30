@@ -6,7 +6,7 @@ const { expect } = require('chai');
 // kills the process when there is none, so requiring main.js outside an ioBroker host needs
 // the base class handed to it instead. Nothing of it is used here: the tests drive one method
 // on a hand-built object, and never construct an adapter.
-const Module = /** @type {any} */ (require('module'));
+const Module = /** @type {any} */ (require('node:module'));
 const load = Module._load;
 Module._load = function (/** @type {string} */ request, /** @type {any[]} */ ...rest) {
   return request === '@iobroker/adapter-core' ? { Adapter: class {} } : load.call(this, request, ...rest);
