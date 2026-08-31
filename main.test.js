@@ -6,7 +6,7 @@ const { expect } = require('chai');
 // kills the process when there is none, so requiring main.js outside an ioBroker host needs
 // the base class handed to it instead. Nothing of it is used here: the tests drive one method
 // on a hand-built object, and never construct an adapter.
-const Module = /** @type {any} */ (require('module'));
+const Module = /** @type {any} */ (require('node:module'));
 const load = Module._load;
 Module._load = function (/** @type {string} */ request, /** @type {any[]} */ ...rest) {
   return request === '@iobroker/adapter-core' ? { Adapter: class {} } : load.call(this, request, ...rest);
@@ -76,6 +76,17 @@ function adapter(seed = {}) {
  */
 function send(fake, points) {
   fake.handleMqttMessage(TOPIC, Buffer.from(JSON.stringify(points)));
+}
+
+/**
+ * A payload as the states see it: the mower spells its measurements as strings and the
+ * adapter turns them into numbers before json2iob types a state after them.
+ *
+ * @param {any} point one entry of a location payload
+ * @returns {any} the same entry with its areas as numbers
+ */
+function asStates(point) {
+  return { ...point, mowingWeekArea: Number(point.mowingWeekArea), subtotalArea: Number(point.subtotalArea) };
 }
 
 // The two messages below are copied from a debug log of a real start (2026-08-11): the mower
@@ -189,7 +200,7 @@ describe('mowing session detection', () => {
     expect(fake.lastMowingPercentage[DEVICE]).to.equal(100);
     expect(fake.lastSubtotalArea[DEVICE]).to.equal(362.91);
     // And it must not reach the states: only the message that was current was written.
-    expect(fake.parsed).to.deep.equal([SESSION_DONE]);
+    expect(fake.parsed).to.deep.equal([asStates(SESSION_DONE)]);
   });
 
   it('does not let positions push the mark past a progress still on its way', () => {
@@ -419,7 +430,7 @@ describe('the map switched off', () => {
 
     send(fake, [SESSION_DONE]);
     send(fake, [LATE_ARRIVAL]);
-    expect(fake.parsed).to.deep.equal([SESSION_DONE]);
+    expect(fake.parsed).to.deep.equal([asStates(SESSION_DONE)]);
   });
 });
 
@@ -538,7 +549,7 @@ describe('the map reset', () => {
 
     fake.resetMap(DEVICE, 'test');
     expect(written[`${DEVICE}.location.mowingPercentage`]).to.equal(0);
-    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal('0.0');
+    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal(0);
     expect(written[`${DEVICE}.location.currentMowProgress`]).to.equal(0);
     // The week is not a session and nothing here resets it.
     expect(written).to.not.have.property(`${DEVICE}.location.mowingWeekArea`);
@@ -564,7 +575,7 @@ describe('the map reset', () => {
     expect(written[`${DEVICE}.mapFrame`]).to.equal('');
     // Zeroed out of the value that was still remembered, before the reset forgot it.
     expect(written[`${DEVICE}.location.mowingPercentage`]).to.equal(0);
-    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal('0.0');
+    expect(written[`${DEVICE}.location.subtotalArea`]).to.equal(0);
   });
 
   it('writes no progress state for a mower that never reported one', () => {
@@ -925,5 +936,38 @@ describe('the status poll loop', () => {
     finishPoll();
     await second;
     expect(armed).to.have.lengthOf(2);
+  });
+});
+
+describe('a measurement the mower spells as a string', () => {
+  // json2iob types every state after what it is handed, so a "734.08" builds a text/string
+  // state that no chart, no comparison and no sum can use without parsing it again. Nothing
+  // local saw it - not lint, not tsc, not the object-structure check, which reads objects and
+  // never values - and it took the reviewer of repositories#6472 to find it. This is the gate:
+  // it sweeps everything that reaches json2iob, so a field the cloud starts sending tomorrow
+  // is caught here rather than in a PR comment.
+  const PAYLOADS = [
+    START,
+    FIRST_PERCENT,
+    SESSION_DONE,
+    { postureX: '0.329', postureY: '0.042', postureTheta: '-2.859', time: 1_000_000, type: 1 },
+    { subtotalArea: '', mapWorkPosition: 'FFFFFFFF01', time: SESSION_DONE.time + 1000, type: 2 },
+  ];
+
+  it('reaches json2iob as a number, and only where it is one', () => {
+    const fake = adapter({ lastVehicleState: { [DEVICE]: 'isRunning' } });
+    for (const p of PAYLOADS) send(fake, [{ ...p }]);
+
+    for (const payload of fake.parsed) {
+      for (const [key, value] of Object.entries(payload)) {
+        const numericString = typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
+        expect(numericString, `${key} = ${JSON.stringify(value)} is a number written as a string`).to.equal(false);
+      }
+    }
+    // And what is not a number is left alone: an empty area does not become a zero nobody
+    // measured, and the hex position keeps its digits.
+    const last = fake.parsed[fake.parsed.length - 1];
+    expect(last.subtotalArea).to.equal('');
+    expect(last.mapWorkPosition).to.equal('FFFFFFFF01');
   });
 });

@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const mqtt = require('mqtt');
 const { URL } = require('node:url');
 const descriptions = require('./lib/descriptions.json');
+const units = require('./lib/units.json');
 const states = require('./lib/states.json');
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
@@ -230,6 +231,35 @@ function parsePosition(value) {
 function trackPoint(x, y, postureTheta) {
   const theta = strictNumber(postureTheta);
   return Number.isFinite(theta) ? { x, y, theta } : { x, y };
+}
+
+/**
+ * The fields of a location message that are measurements, however the mower spells them.
+ *
+ * Position, heading and the two areas arrive as strings - "0.329" metres, "734.08" square
+ * metres - while everything else in the same payload arrives as a number. json2iob types a
+ * state after what it is handed, so left as they came they built `text`/`string` states: a
+ * measurement nothing can chart, compare or sum without parsing it again in every script.
+ */
+const NUMERIC_LOCATION_FIELDS = ['postureX', 'postureY', 'postureTheta', 'subtotalArea', 'mowingWeekArea'];
+
+/**
+ * A location reading with its measurements as numbers.
+ *
+ * Only where the string really is one: an empty `subtotalArea` - the mower sends those -
+ * stays as it is rather than becoming a zero nobody measured, and a field the firmware fills
+ * with something that is not a number keeps whatever it holds.
+ *
+ * @param {any} point one entry of the location payload, changed in place
+ * @returns {any} the same entry
+ */
+function numericLocationFields(point) {
+  if (!point || typeof point !== 'object') return point;
+  for (const field of NUMERIC_LOCATION_FIELDS) {
+    const value = strictNumber(point[field]);
+    if (Number.isFinite(value)) point[field] = value;
+  }
+  return point;
 }
 
 /**
@@ -886,6 +916,11 @@ class Navimow extends utils.Adapter {
 
       // location channel: collect points and render map
       if (channel === 'location') {
+        // Before anything reads the payload, so the states, the track and the session
+        // decision all see the same numbers.
+        if (Array.isArray(data)) data.forEach(numericLocationFields);
+        else numericLocationFields(data);
+
         let points = Array.isArray(data) ? data : [data];
 
         // Anything the mower sent before a reading of the same kind already seen is dropped
@@ -928,6 +963,7 @@ class Navimow extends utils.Adapter {
         forceIndex: true,
         channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
         descriptions,
+        units,
         // The value lists are keyed by the state names the state channel reports
         // ("isRunning", "isDocked"). The location channel has a vehicleState of its own, a
         // number, and attaching the same list to it puts values on the object that its
@@ -1899,9 +1935,7 @@ class Navimow extends utils.Adapter {
     // exist. Writing them into being would put a reading on the tree that no mower ever sent.
     if (this.lastMowingPercentage[deviceId] == null) return;
     this.setState(deviceId + '.location.mowingPercentage', 0, true);
-    // The mower sends the area as a string and the hundredths of a percent as an integer, and
-    // json2iob built the states in its image.
-    this.setState(deviceId + '.location.subtotalArea', '0.0', true);
+    this.setState(deviceId + '.location.subtotalArea', 0, true);
     this.setState(deviceId + '.location.currentMowProgress', 0, true);
   }
 
@@ -2373,7 +2407,7 @@ class Navimow extends utils.Adapter {
               common: { role: remote.role, read: false, write: true },
             });
           }
-          this.json2iob.parse(id + '.general', this.sanitizeKeys(device), { descriptions, states });
+          this.json2iob.parse(id + '.general', this.sanitizeKeys(device), { descriptions, units, states });
         }
         this.log.info('Found ' + devices.length + ' device(s)');
       })
@@ -2467,6 +2501,7 @@ class Navimow extends utils.Adapter {
             forceIndex: true,
             channelName: 'Status',
             descriptions,
+            units,
             states,
           });
 

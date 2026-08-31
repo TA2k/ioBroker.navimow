@@ -291,6 +291,8 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 - (typhosj) Stop letting a mowing progress from a session long over hold the map of that session on screen: past six hours it counts for as little as none at all, and the mower leaving the dock clears the map. A zone task reports no progress whatsoever, so without this the map of the last whole-lawn session stayed up while the mower mowed a zone of it every day
 - (typhosj) Put the mowed area and the mowing progress back to zero when a session is reset, so a zone run no longer shows the area and the percentage of a session days over
 - (typhosj) Add `remote.resetMap`, which clears the track, the picture and the frame — for a lawn re-mapped or split into zones, where the adapter cannot see that a session ended
+- (typhosj) Write the position, the heading and the two areas as numbers: the mower sends them as strings, so `location.postureX`, `postureY`, `postureTheta`, `subtotalArea` and `mowingWeekArea` used to be `text`/`string` states that no chart could draw and no script could compare without parsing them again
+- (typhosj) Give the measured states their unit — metres, radians, square metres, percent — instead of naming it in brackets in the state's name
 
 ### 1.1.1 (2026-08-18)
 

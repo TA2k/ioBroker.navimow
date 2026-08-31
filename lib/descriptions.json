@@ -16,7 +16,7 @@
   "vehicleState": "Mower State",
   "status": "Status",
   "state": "State",
-  "battery": "Battery Level (%)",
+  "battery": "Battery Level",
   "capacityRemaining": "Remaining Capacity",
   "rawValue": "Raw Value",
   "unit": "Unit",
@@ -35,8 +35,8 @@
   "timestamp": "Last Update Timestamp",
   "descriptiveCapacityRemaining": "Battery Description",
   "extra": "Extra Information",
-  "postureTheta": "Rotation Angle (rad)",
-  "postureX": "Position X (m)",
-  "postureY": "Position Y (m)",
+  "postureTheta": "Rotation Angle",
+  "postureX": "Position X",
+  "postureY": "Position Y",
   "type": "Type"
 }

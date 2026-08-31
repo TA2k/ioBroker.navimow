@@ -1,0 +1,9 @@
+{
+  "postureX": "m",
+  "postureY": "m",
+  "postureTheta": "rad",
+  "subtotalArea": "m²",
+  "mowingWeekArea": "m²",
+  "mowingPercentage": "%",
+  "battery": "%"
+}
