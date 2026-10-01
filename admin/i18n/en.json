@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Marker size (px)",
   "mapMarkerSizeHelp": "The mower needs about 16 to 24 px to be recognisable as one.",
   "mapRenderIntervalLabel": "Redraw at most every (s)",
-  "mapRenderIntervalHelp": "Drawing the map costs about 80 ms and a 65 KiB state write, which is why it does not follow every position. The default of 3 keeps the picture within about a metre and a half of the mower. 2 is the smoothest the mower reports and the most expensive; a weak host or a large lawn is better off higher."
+  "mapRenderIntervalHelp": "Drawing the map costs about 80 ms and a 65 KiB state write, which is why it does not follow every position. The default of 3 keeps the picture within about a metre and a half of the mower. 2 is the smoothest the mower reports and the most expensive; a weak host or a large lawn is better off higher.",
+  "authCodeInvalid": "This URL contains no ?code=. Copy the complete URL from the browser address bar after the login.",
+  "connectionLabel": "Connection",
+  "connected": "Connected",
+  "notConnected": "Not connected"
 }

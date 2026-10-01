@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Taille du marqueur (px)",
   "mapMarkerSizeHelp": "Le robot a besoin d'environ 16 à 24 px pour être reconnaissable comme tel.",
   "mapRenderIntervalLabel": "Redessiner au plus toutes les (s)",
-  "mapRenderIntervalHelp": "Dessiner la carte coûte environ 80 ms et une écriture d'état de 65 Kio, c'est pourquoi elle ne suit pas chaque position. La valeur par défaut de 3 maintient l'image à environ un mètre cinquante du robot. 2 est le plus fluide que le robot rapporte et le plus coûteux ; un hôte peu puissant ou une grande pelouse gagnent à monter plus haut."
+  "mapRenderIntervalHelp": "Dessiner la carte coûte environ 80 ms et une écriture d'état de 65 Kio, c'est pourquoi elle ne suit pas chaque position. La valeur par défaut de 3 maintient l'image à environ un mètre cinquante du robot. 2 est le plus fluide que le robot rapporte et le plus coûteux ; un hôte peu puissant ou une grande pelouse gagnent à monter plus haut.",
+  "authCodeInvalid": "Cette URL ne contient pas ?code=. Copiez l’URL complète de la barre d’adresse du navigateur après la connexion.",
+  "connectionLabel": "Connexion",
+  "connected": "Connecté",
+  "notConnected": "Non connecté"
 }

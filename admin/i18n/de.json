@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Größe des Markers (px)",
   "mapMarkerSizeHelp": "Der Mäher braucht etwa 16 bis 24 px, um als solcher erkennbar zu sein.",
   "mapRenderIntervalLabel": "Neu zeichnen höchstens alle (s)",
-  "mapRenderIntervalHelp": "Das Zeichnen der Karte kostet etwa 80 ms und einen 65 KiB großen State-Schreibvorgang, deshalb folgt es nicht jeder Position. Der Standardwert 3 hält das Bild etwa anderthalb Meter hinter dem Mäher. 2 ist das Flüssigste, was der Mäher meldet, und das Teuerste; auf schwacher Hardware oder bei großem Rasen höher setzen."
+  "mapRenderIntervalHelp": "Das Zeichnen der Karte kostet etwa 80 ms und einen 65 KiB großen State-Schreibvorgang, deshalb folgt es nicht jeder Position. Der Standardwert 3 hält das Bild etwa anderthalb Meter hinter dem Mäher. 2 ist das Flüssigste, was der Mäher meldet, und das Teuerste; auf schwacher Hardware oder bei großem Rasen höher setzen.",
+  "authCodeInvalid": "Diese URL enthält kein ?code=. Kopiere nach dem Login die komplette URL aus der Browser-Adressleiste.",
+  "connectionLabel": "Verbindung",
+  "connected": "Verbunden",
+  "notConnected": "Nicht verbunden"
 }

@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Rozmiar znacznika (px)",
   "mapMarkerSizeHelp": "Kosiarka potrzebuje około 16 do 24 px, aby dało się ją rozpoznać.",
   "mapRenderIntervalLabel": "Rysuj ponownie najwyżej co (s)",
-  "mapRenderIntervalHelp": "Rysowanie mapy kosztuje około 80 ms i zapis stanu o wielkości 65 KiB, dlatego nie podąża za każdą pozycją. Domyślna wartość 3 utrzymuje obraz około półtora metra za kosiarką. 2 to najpłynniejsze, co kosiarka zgłasza, i najdroższe; przy słabym hoście lub dużym trawniku lepiej ustawić wyżej."
+  "mapRenderIntervalHelp": "Rysowanie mapy kosztuje około 80 ms i zapis stanu o wielkości 65 KiB, dlatego nie podąża za każdą pozycją. Domyślna wartość 3 utrzymuje obraz około półtora metra za kosiarką. 2 to najpłynniejsze, co kosiarka zgłasza, i najdroższe; przy słabym hoście lub dużym trawniku lepiej ustawić wyżej.",
+  "authCodeInvalid": "Ten adres URL nie zawiera ?code=. Po zalogowaniu skopiuj pełny adres URL z paska adresu przeglądarki.",
+  "connectionLabel": "Połączenie",
+  "connected": "Połączono",
+  "notConnected": "Nie połączono"
 }

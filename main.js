@@ -9,6 +9,8 @@ const { URL } = require('node:url');
 const descriptions = require('./lib/descriptions.json');
 const units = require('./lib/units.json');
 const states = require('./lib/states.json');
+// Roles json2iob cannot derive from the type; matched by the last id segment.
+const roles = { battery: 'value.battery' };
 
 const API_BASE_URL = 'https://navimow-fra.ninebot.com';
 const OAUTH2_TOKEN_URL = API_BASE_URL + '/openapi/oauth/getAccessToken';
@@ -476,7 +478,9 @@ class Navimow extends utils.Adapter {
           native: { authCode: '' },
         });
       } else {
-        this.log.error('Token exchange failed. Check the authorization code.');
+        this.log.error(
+          'Token exchange failed. A code works only once and expires after a short time: open the Navimow login link in the adapter settings again, log in, paste the new URL from the browser address bar and save. If the log above shows a network error instead, saving again is enough.',
+        );
       }
     }
 
@@ -542,7 +546,9 @@ class Navimow extends utils.Adapter {
           }
         }
       } else {
-        this.log.warn('No valid access token found.');
+        this.log.warn(
+          'The stored token holds no access token. Open the Navimow login link in the adapter settings, log in again, paste the URL from the browser address bar and save.',
+        );
       }
     } else {
       this.log.warn(
@@ -964,6 +970,7 @@ class Navimow extends utils.Adapter {
         channelName: folderName.charAt(0).toUpperCase() + folderName.slice(1),
         descriptions,
         units,
+        roles,
         // The value lists are keyed by the state names the state channel reports
         // ("isRunning", "isDocked"). The location channel has a vehicleState of its own, a
         // number, and attaching the same list to it puts values on the object that its
@@ -2407,7 +2414,7 @@ class Navimow extends utils.Adapter {
               common: { role: remote.role, read: false, write: true },
             });
           }
-          this.json2iob.parse(id + '.general', this.sanitizeKeys(device), { descriptions, units, states });
+          this.json2iob.parse(id + '.general', this.sanitizeKeys(device), { descriptions, units, roles, states });
         }
         this.log.info('Found ' + devices.length + ' device(s)');
       })
@@ -2502,6 +2509,7 @@ class Navimow extends utils.Adapter {
             channelName: 'Status',
             descriptions,
             units,
+            roles,
             states,
           });
 

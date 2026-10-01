@@ -971,3 +971,73 @@ describe('a measurement the mower spells as a string', () => {
     expect(last.mapWorkPosition).to.equal('FFFFFFFF01');
   });
 });
+
+describe('what a failed login says in the log', () => {
+  /**
+   * @param {object} config adapter settings
+   * @param {any} storedToken value of auth.token
+   * @returns {Promise<{ errors: string[], warnings: string[], fake: any }>} the log and the adapter
+   */
+  async function start(config, storedToken) {
+    /** @type {string[]} */
+    const errors = [];
+    /** @type {string[]} */
+    const warnings = [];
+    const fake = Object.create(Navimow.prototype);
+    Object.assign(fake, {
+      namespace: 'navimow.0',
+      log: { debug() {}, info() {}, warn: (m) => warnings.push(m), error: (m) => errors.push(m) },
+      config: { interval: 5, ...config },
+      setState() {},
+      subscribeStates() {},
+      setObjectNotExistsAsync: () => Promise.resolve(),
+      extendForeignObject() {},
+      exchangeCodeForToken: () => Promise.resolve(null),
+      getStateAsync: () => Promise.resolve(storedToken === undefined ? null : { val: storedToken }),
+    });
+    await fake.onReady();
+    return { errors, warnings, fake };
+  }
+
+  it('tells the user to log in again when the code is refused', async () => {
+    const { errors } = await start({ authCode: 'http://localhost:1/callback?code=used' });
+    expect(errors.join(' ')).to.contain('works only once').and.contain('login link');
+  });
+
+  it('tells the user how to get a new token when the stored one has no access token', async () => {
+    const { warnings } = await start({}, JSON.stringify({ token_type: 'bearer' }));
+    expect(warnings.join(' ')).to.contain('holds no access token').and.contain('login link');
+  });
+
+  it('keeps asking for the first login when nothing is stored', async () => {
+    const { warnings } = await start({}, undefined);
+    expect(warnings.join(' ')).to.contain('No token found');
+  });
+});
+
+describe('the battery level', () => {
+  it('gets the role value.battery, so vis and the type detector recognise it', async () => {
+    const Json2iob = require('json2iob');
+    /** @type {Map<string, any>} */
+    const objects = new Map();
+    const store = {
+      log: { debug() {}, info() {}, warn() {}, error() {} },
+      FORBIDDEN_CHARS: /[^._\-/ :!#$%&()+=@^{}|~\p{Ll}\p{Lu}\p{Nd}]+/gu,
+      extendObjectAsync: (/** @type {string} */ id, /** @type {any} */ obj) => {
+        objects.set(id, { ...objects.get(id), ...obj, common: { ...objects.get(id)?.common, ...obj.common } });
+        return Promise.resolve();
+      },
+      setObjectNotExistsAsync: () => Promise.resolve(),
+      getObjectAsync: (/** @type {string} */ id) => Promise.resolve(objects.get(id)),
+      setStateAsync: () => Promise.resolve(),
+    };
+    const fake = adapter({ json2iob: new Json2iob(store) });
+
+    fake.handleMqttMessage(`downlink/vehicle/${DEVICE}/realtimeData/state`, Buffer.from(JSON.stringify({ battery: 81 })));
+    for (let i = 0; i < 20 && !objects.has(`${DEVICE}.status.battery`); i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(objects.get(`${DEVICE}.status.battery`)?.common).to.include({ role: 'value.battery', unit: '%', type: 'number' });
+  });
+});

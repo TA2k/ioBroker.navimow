@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Tamaño del marcador (px)",
   "mapMarkerSizeHelp": "El robot necesita entre 16 y 24 px aproximadamente para que se reconozca como tal.",
   "mapRenderIntervalLabel": "Redibujar como mucho cada (s)",
-  "mapRenderIntervalHelp": "Dibujar el mapa cuesta unos 80 ms y una escritura de estado de 65 KiB, por eso no sigue todas las posiciones. El valor predeterminado 3 mantiene la imagen a metro y medio del robot. 2 es lo más fluido que informa el robot y lo más costoso; con un host débil o un césped grande conviene subirlo."
+  "mapRenderIntervalHelp": "Dibujar el mapa cuesta unos 80 ms y una escritura de estado de 65 KiB, por eso no sigue todas las posiciones. El valor predeterminado 3 mantiene la imagen a metro y medio del robot. 2 es lo más fluido que informa el robot y lo más costoso; con un host débil o un césped grande conviene subirlo.",
+  "authCodeInvalid": "Esta URL no contiene ?code=. Copia la URL completa de la barra de direcciones del navegador después de iniciar sesión.",
+  "connectionLabel": "Conexión",
+  "connected": "Conectado",
+  "notConnected": "No conectado"
 }

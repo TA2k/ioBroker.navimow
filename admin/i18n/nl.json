@@ -20,5 +20,9 @@
   "mapMarkerSizeLabel": "Grootte van de markering (px)",
   "mapMarkerSizeHelp": "De maaier heeft ongeveer 16 tot 24 px nodig om als maaier herkenbaar te zijn.",
   "mapRenderIntervalLabel": "Hoogstens opnieuw tekenen elke (s)",
-  "mapRenderIntervalHelp": "Het tekenen van de kaart kost ongeveer 80 ms en een statusschrijfactie van 65 KiB, daarom volgt het niet elke positie. De standaardwaarde 3 houdt het beeld ongeveer anderhalve meter achter de maaier. 2 is het vloeiendste dat de maaier meldt en het duurste; een zwakke host of een groot gazon kan beter hoger gaan."
+  "mapRenderIntervalHelp": "Het tekenen van de kaart kost ongeveer 80 ms en een statusschrijfactie van 65 KiB, daarom volgt het niet elke positie. De standaardwaarde 3 houdt het beeld ongeveer anderhalve meter achter de maaier. 2 is het vloeiendste dat de maaier meldt en het duurste; een zwakke host of een groot gazon kan beter hoger gaan.",
+  "authCodeInvalid": "Deze URL bevat geen ?code=. Kopieer na het inloggen de volledige URL uit de adresbalk van de browser.",
+  "connectionLabel": "Verbinding",
+  "connected": "Verbonden",
+  "notConnected": "Niet verbonden"
 }

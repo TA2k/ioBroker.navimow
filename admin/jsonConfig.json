@@ -27,7 +27,18 @@
       "newLine": true,
       "xs": 12, "sm": 6, "md": 6, "lg": 6, "xl": 6,
       "label": "authCodeLabel",
-      "help": "authCodeHelp"
+      "help": "authCodeHelp",
+      "validator": "!data.authCode || !data.authCode.trim().startsWith('http') || data.authCode.includes('code=')",
+      "validatorErrorText": "authCodeInvalid",
+      "validatorNoSaveOnError": true
+    },
+    "_connection": {
+      "type": "state",
+      "oid": "info.connection",
+      "label": "connectionLabel",
+      "trueText": "connected",
+      "falseText": "notConnected",
+      "xs": 12, "sm": 6, "md": 4, "lg": 4, "xl": 4
     },
     "interval": {
       "type": "number",
