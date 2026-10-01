@@ -71,7 +71,7 @@ const SESSION_END_STATES = new Set(['isDocked', 'docked', 'charging']);
 // Six hours sits far past any charging break - a live session cannot fall this quiet - and far
 // short of the day between two mowings.
 //
-// ponytail: a zone task that breaks off to charge for longer than this comes back reading as a
+// Known limit: a zone task that breaks off to charge for longer than this comes back reading as a
 // new session and loses what it collected before docking. The battery at the moment of docking
 // is what tells a break from a fresh start, if that ever proves worth the code.
 const MOWING_PROGRESS_STALE_MS = 6 * 60 * 60 * 1000;
@@ -143,7 +143,7 @@ const DOCK_POSITION_MAX_AGE_MS = 2 * 60 * 1000;
 // it sends lies on a line already drawn: at 2 cm half the positions of a recorded session went
 // and the track moved by at most 1.1 px of an 800 px map, under a line 1.5 px wide.
 //
-// ponytail: the check only looks at the position before last, not at the ones already dropped,
+// Known limit: the check only looks at the position before last, not at the ones already dropped,
 // so the error can creep on a long slow curve - measured 1.1 px at 2 cm but 154 px at 10 cm.
 // Doubling this constant is therefore not free. Douglas-Peucker over the whole track holds the
 // error at any tolerance and is the upgrade if the budget ever has to come down much further.
