@@ -24,13 +24,12 @@ jobs:
       
     steps:
       - name: Auto-merge Dependabot PRs
-        uses: iobroker-bot-orga/action-automerge-dependabot@v1
+        uses: iobroker-bot-orga/action-automerge-dependabot@cdb8d11b3ff0bd8f3b4e9ee41886c187be641fb4 # v1.1.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # Optional: Path to your auto-merge configuration file
           # config-file-path: '.github/auto-merge.yml'
-          # Optional: Merge method (merge, squash, or rebase)
-          # merge-method: 'squash'
+          merge-method: 'squash'
           # Optional: Wait for other checks to complete
           # wait-for-checks: 'true'
           # Optional: Maximum time to wait for checks in seconds (default: 3600)
