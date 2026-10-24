@@ -508,6 +508,63 @@ describe('what a failed API call says in the log', () => {
   });
 });
 
+describe('a command the cloud answers with an error', () => {
+  /**
+   * @param {any} data the body sendCommands answered with
+   * @returns {Promise<any>} the adapter after the command, with its log lines and timers
+   */
+  async function command(data) {
+    const fake = Object.assign(Object.create(Navimow.prototype), {
+      lines: /** @type {string[]} */ ([]),
+      timers: 0,
+      getAuthHeaders: () => ({}),
+      requestClient: () => Promise.resolve({ data }),
+      setTimeout() {
+        this.timers++;
+      },
+    });
+    fake.log = {
+      debug() {},
+      info: (/** @type {string} */ m) => fake.lines.push('info: ' + m),
+      error: (/** @type {string} */ m) => fake.lines.push('error: ' + m),
+    };
+    await fake.sendMowerCommand(DEVICE, 'start');
+    return fake;
+  }
+
+  /**
+   * @param {any[]} commands the per-device results
+   * @returns {any} a body with code 1, the way the cloud wraps them
+   */
+  const answer = (commands) => ({ code: 1, data: { payload: { commands } } });
+
+  // The answer of 2026-10-24 from the forum: the cloud took the command but could not reach
+  // the mower, and the log went on to call it sent successfully.
+  it('logs a failed command as failed only, and polls for nothing', async () => {
+    const fake = await command(answer([{ ids: [DEVICE], status: 'ERROR', errorCode: 'transientError' }]));
+    expect(fake.lines).to.deep.equal(['info: Sending command "start" to device ' + DEVICE, 'error: Command error: transientError']);
+    expect(fake.timers).to.equal(0);
+  });
+
+  it('names an error without a code as unknown', async () => {
+    const fake = await command(answer([{ status: 'ERROR' }]));
+    expect(fake.lines).to.include('error: Command error: unknown');
+    expect(fake.lines.some((l) => l.includes('sent successfully'))).to.equal(false);
+  });
+
+  it('counts a mower already in that state as success', async () => {
+    const fake = await command(answer([{ status: 'ERROR', errorCode: 'alreadyInState' }]));
+    expect(fake.lines).to.include('info: Command "start" sent successfully');
+    expect(fake.timers).to.equal(1);
+  });
+
+  it('reports success and polls once when the command went through', async () => {
+    const fake = await command(answer([{ status: 'SUCCESS' }]));
+    expect(fake.lines).to.include('info: Command "start" sent successfully');
+    expect(fake.timers).to.equal(1);
+  });
+});
+
 describe('the map reset', () => {
   it('redraws with the charging station instead of blanking the picture', () => {
     const fake = adapter({

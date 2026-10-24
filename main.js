@@ -2661,10 +2661,14 @@ class Navimow extends utils.Adapter {
           return;
         }
         const results = res.data.data?.payload?.commands || [];
-        for (const result of results) {
-          if (result.status === 'ERROR' && result.errorCode !== 'alreadyInState') {
-            this.log.error('Command error: ' + (result.errorCode || 'unknown'));
-          }
+        // code 1 only says the cloud took the request; whether the mower carried it out is in
+        // the per-device results, and a failed one must not go on to read as success.
+        const failed = results.filter((result) => result.status === 'ERROR' && result.errorCode !== 'alreadyInState');
+        for (const result of failed) {
+          this.log.error('Command error: ' + (result.errorCode || 'unknown'));
+        }
+        if (failed.length) {
+          return;
         }
         this.log.info('Command "' + commandName + '" sent successfully');
         this.refreshTimeout && this.clearTimeout(this.refreshTimeout);
