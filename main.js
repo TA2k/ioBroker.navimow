@@ -9,6 +9,7 @@ const { URL } = require('node:url');
 const descriptions = require('./lib/descriptions.json');
 const units = require('./lib/units.json');
 const states = require('./lib/states.json');
+const { AppZones } = require('./lib/appZones');
 // Roles json2iob cannot derive from the type; matched by the last id segment.
 const roles = { battery: 'value.battery' };
 
@@ -423,6 +424,9 @@ class Navimow extends utils.Adapter {
     this.httpPollStartedAt = 0;
     this.httpPollToken = 0;
     this.unloading = false;
+    // Optional zone control through the app cloud (unofficial API). Off unless appEnabled is set.
+    /** @type {InstanceType<typeof AppZones>|null} */
+    this.appZones = null;
   }
 
   async onReady() {
@@ -518,6 +522,18 @@ class Navimow extends utils.Adapter {
 
         // Connect MQTT for real-time updates
         await this.connectMqtt();
+
+        // Optional zone control through the app cloud. Runs on its own session and poll and is
+        // isolated from everything above: it never touches info.connection, MQTT or the OAuth
+        // poll. Scoped to the first mower; a shared app account keeps one session per account,
+        // so a second mower would need the same session rather than a second one of its own.
+        if (this.config.appEnabled && this.deviceArray.length) {
+          if (this.deviceArray.length > 1) {
+            this.log.info('App zone control handles the first mower only (' + this.deviceArray[0] + ').');
+          }
+          this.appZones = new AppZones(this);
+          await this.appZones.start(this.deviceArray[0]);
+        }
 
         // Periodic HTTP polling alongside MQTT real-time updates (0 = disabled)
         if (this.config.interval > 0) {
@@ -2763,6 +2779,13 @@ class Navimow extends utils.Adapter {
 
     this.log.debug('Remote command triggered: ' + command + ' for device ' + deviceId);
 
+    // Zone commands belong to the optional app-cloud module, and only for the mower it runs on.
+    if (command === 'zoneStart' || command === 'zoneReset') {
+      if (this.appZones && deviceId === this.appZones.deviceId && this.appZones.handleRemote(command, state)) {
+        return;
+      }
+    }
+
     if (command === 'Refresh') {
       this.pollDevices('manual refresh');
       return;
@@ -2785,6 +2808,7 @@ class Navimow extends utils.Adapter {
       this.log.debug('Adapter unloading, cleaning up...');
       this.unloading = true;
       this.setState('info.connection', false, true);
+      this.appZones && this.appZones.stop();
       this.disconnectMqtt();
       this.pollTimeout && this.clearTimeout(this.pollTimeout);
       this.refreshTokenTimeout && this.clearTimeout(this.refreshTokenTimeout);

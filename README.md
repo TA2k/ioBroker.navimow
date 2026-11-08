@@ -67,6 +67,8 @@ For each mower device the following channels are created:
 | `{deviceId}.location`    | Real-time mower position and mowing progress (via MQTT)  |
 | `{deviceId}.diagnostics` | MQTT location watchdog diagnostics                       |
 | `{deviceId}.dockPosition` | Charging station position, writable                     |
+| `{deviceId}.zones`       | Per-zone name, area and progress (zone control only)     |
+| `{deviceId}.appStatus`   | App-cloud connection and state code (zone control only)  |
 
 ### vehicleState
 
@@ -267,9 +269,55 @@ on({ id: [prefix + '.location.postureX', prefix + '.location.postureY'], change:
 
 If you only want to see the track, none of this is needed — the `map` state is a finished picture, and `mapMarker` already draws the mower on it.
 
+## Zone control (unofficial app API)
+
+The official Smart Home API this adapter is built on accepts a zone in its start command but ignores it: a start always mows the whole map, and a zone task reports no mowing progress. Starting a **single zone** and reading the **progress per zone** is only possible through the private cloud the Navimow app itself talks to. This optional, off-by-default feature adds exactly that.
+
+> **This is an unofficial, reverse-engineered API.** Its keys belong to the Navimow app, and a Navimow app update can change them and stop the feature working until the adapter is updated. It is separate from the official connection above: when it fails, `info.connection`, MQTT and the normal states are untouched, and the adapter keeps working as before. The protocol is ported from the Home Assistant integration [NaviMower](https://github.com/vahesoo/NaviMower) (MIT).
+
+### Setup
+
+1. Use a **separate Navimow account** shared with your mower, not the account the app or the official login uses. The app cloud keeps one session per account, so two clients on the same account can push each other out. Create a second account, share the mower to it in the Navimow app, and use that account here.
+2. In the adapter settings, enable **Zone control** and enter the e-mail and password of that account. The password is stored encrypted (`encryptedNative`/`protectedNative`) and used only for login and re-login.
+3. Save. The adapter logs in, creates the zone objects and starts polling (about every minute while docked, more often while mowing).
+
+### States
+
+Created under each mower device, only while the feature is on:
+
+| State                          | Type    | Description                                                        |
+| ------------------------------ | ------- | ----------------------------------------------------------------- |
+| `appStatus.appConnection`      | boolean | App-cloud connection, separate from `info.connection`             |
+| `appStatus.stateCode`          | string  | App-cloud state code (`0101` docked, `0210` mowing, …)            |
+| `appStatus.lastUpdate`         | number  | When the zone data was last read                                  |
+| `zones.<id>.name`              | string  | Zone name from the map                                            |
+| `zones.<id>.area`              | number  | Zone area (m²)                                                    |
+| `zones.<id>.coverage`          | number  | Progress of the zone (%, vendor value)                           |
+| `zones.<id>.selected`          | boolean | Zone is part of the current/last task                            |
+| `zones.<id>.active`            | boolean | Zone is being mowed right now                                    |
+| `remote.zoneStart`             | string  | Write to start zones (see below)                                 |
+| `remote.zoneReset`             | boolean | `false` (default) = continue where it stopped; `true` = from the start |
+
+### Starting zones
+
+Write `remote.zoneStart` with either zone ids/names or a JSON command:
+
+```javascript
+// one zone by id, continue where it stopped (reset taken from remote.zoneReset)
+setState('navimow.0.<serial>.remote.zoneStart', '1427', false);
+
+// several zones by name
+setState('navimow.0.<serial>.remote.zoneStart', 'Werkstatt,Vor Carport', false);
+
+// explicit: mow zone 1219 from the start, ignoring remote.zoneReset
+setState('navimow.0.<serial>.remote.zoneStart', '{"zones":[1219],"reset":false}', false);
+```
+
+The mower mows the chosen zones and **picks the order itself** (the first-generation H series, including the H3000, does not take a custom order). A start is refused with an error in the log while the mower reports a problem (for example stuck or lifted). Only the first mower of a shared account is handled.
+
 ## API
 
-Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA).
+Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Navimow HA Integration](https://github.com/segwaynavimow/NavimowHA). Zone control additionally uses the private app cloud (`POST …/vehicle/set/send`, `…/vehicle/vehicle/index2`, `…/vehicle/trail/get-path-info-time`, `…/map/index/map-detail`), ported from [NaviMower](https://github.com/vahesoo/NaviMower).
 
 | Endpoint                                   | Purpose                                    |
 | ------------------------------------------ | ------------------------------------------ |
@@ -286,6 +334,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 -->
 ### **WORK IN PROGRESS**
 
+- Optional zone control through the unofficial Navimow app API: start single zones and read the progress per zone (`zones.<id>.*`, `remote.zoneStart`, `remote.zoneReset`, `appStatus.*`). Off by default; it runs on its own account and session and never touches the official connection. Protocol ported from [NaviMower](https://github.com/vahesoo/NaviMower) (MIT)
 - (typhosj) A refused authorization code and a stored token without access token now say what to do: open the login link again, log in and paste the new URL
 - (typhosj) The settings page refuses a pasted URL without `?code=` and shows whether the instance is connected
 - (typhosj) The battery level gets the role `value.battery`, so vis widgets and the type detector recognise it. Existing states are updated on the next start
@@ -367,6 +416,10 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 Older entries are in [CHANGELOG_OLD.md](CHANGELOG_OLD.md).
 
 ## License
+
+The optional zone-control feature (`lib/appApi.js`) adapts MIT-licensed work from
+[NaviMower](https://github.com/vahesoo/NaviMower) by Roberto Gualandris and the Navimower
+contributors; its copyright and permission notice are kept in the header of that file.
 
 MIT License
 
