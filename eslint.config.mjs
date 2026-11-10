@@ -41,7 +41,7 @@ export default [
       '.prettierrc.js',
       'admin/words.js',
       'test/',
-      '*.test.js',
+      '**/*.test.js',
       'eslint.config.mjs',
     ],
   },

@@ -24,5 +24,13 @@
   "authCodeInvalid": "此 URL 不包含 ?code=。登录后请从浏览器地址栏复制完整的 URL。",
   "connectionLabel": "连接",
   "connected": "已连接",
-  "notConnected": "未连接"
+  "notConnected": "未连接",
+  "appHeader": "分区控制（非官方应用 API）",
+  "appInfo": "可选。通过 Navimow 应用云启动单个分区并显示每个分区的进度。这是一个<b>非官方的</b>、逆向工程得到的 API，在 Navimow 应用更新后可能停止工作。请使用与本割草机共享的<b>单独 Navimow 账户</b>，而不是主账户，以避免会话冲突。密码加密存储，仅用于登录。",
+  "appEnabledLabel": "启用分区控制",
+  "appEnabledHelp": "默认关闭。关闭时，适配器的行为与没有此功能时完全相同，不会创建额外的状态。",
+  "appEmailLabel": "应用账户邮箱",
+  "appEmailHelp": "用于应用 API 的（共享）Navimow 账户邮箱。",
+  "appPasswordLabel": "应用账户密码",
+  "appPasswordHelp": "加密存储。仅用于登录和重新登录。"
 }
