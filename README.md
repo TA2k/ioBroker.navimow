@@ -297,6 +297,7 @@ Created under each mower device, only while the feature is on:
 | `zones.<id>.active`            | boolean | Zone is being mowed right now                                    |
 | `remote.zoneStart`             | string  | Write to start zones (see below)                                 |
 | `remote.zoneReset`             | boolean | `false` (default) = continue where it stopped; `true` = from the start |
+| `remote.zoneStartResult`       | string  | Outcome of the last zone start: `sent: …`, `waiting: …` or `failed: …` |
 
 ### Starting zones
 
@@ -310,10 +311,12 @@ setState('navimow.0.<serial>.remote.zoneStart', '1427', false);
 setState('navimow.0.<serial>.remote.zoneStart', 'Werkstatt,Vor Carport', false);
 
 // explicit: mow zone 1219 from the start, ignoring remote.zoneReset
-setState('navimow.0.<serial>.remote.zoneStart', '{"zones":[1219],"reset":false}', false);
+setState('navimow.0.<serial>.remote.zoneStart', '{"zones":[1219],"reset":true}', false);
 ```
 
 The mower mows the chosen zones and **picks the order itself** (the first-generation H series, including the H3000, does not take a custom order). A start is refused with an error in the log while the mower reports a problem (for example stuck or lifted). Only the first mower of a shared account is handled.
+
+If the mower is not online at the cloud (`index2` reports `network_status` other than 1, or the cloud answers `600003` "Mower disconnected") or the network fails, the start is tried again every 2 minutes, at most 15 times (about 30 minutes). A new write to `remote.zoneStart` replaces a start that is still waiting. A refusal by the mower (`5001`, usually busy), a reported problem or a login error is not retried. `remote.zoneStartResult` shows how it went, for example `sent: 1219 (continue), try 3`, `waiting: 1219 (continue) - mower offline (network_status 0), try 2/15, next in 2 min` or `failed: …`.
 
 ## API
 
@@ -334,7 +337,7 @@ Based on the [Navimow SDK](https://github.com/segwaynavimow/navimow-sdk) and [Na
 -->
 ### **WORK IN PROGRESS**
 
-- Optional zone control through the unofficial Navimow app API: start single zones and read the progress per zone (`zones.<id>.*`, `remote.zoneStart`, `remote.zoneReset`, `appStatus.*`). Off by default; it runs on its own account and session and never touches the official connection. Protocol ported from [NaviMower](https://github.com/vahesoo/NaviMower) (MIT)
+- Optional zone control through the unofficial Navimow app API: start single zones and read the progress per zone (`zones.<id>.*`, `remote.zoneStart`, `remote.zoneReset`, `remote.zoneStartResult`, `appStatus.*`). A start that finds the mower offline is tried again every 2 minutes for up to 30 minutes. Off by default; it runs on its own account and session and never touches the official connection. Protocol ported from [NaviMower](https://github.com/vahesoo/NaviMower) (MIT)
 - (typhosj) A refused authorization code and a stored token without access token now say what to do: open the login link again, log in and paste the new URL
 - (typhosj) The settings page refuses a pasted URL without `?code=` and shows whether the instance is connected
 - (typhosj) The battery level gets the role `value.battery`, so vis widgets and the type detector recognise it. Existing states are updated on the next start
