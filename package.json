@@ -23,7 +23,7 @@
   "dependencies": {
     "@iobroker/adapter-core": "^3.4.3",
     "@napi-rs/canvas": "^1.1.1",
-    "axios": "^1.19.0",
+    "axios": "^1.21.1",
     "json2iob": "^2.6.28",
     "mqtt": "^5.16.1"
   },
