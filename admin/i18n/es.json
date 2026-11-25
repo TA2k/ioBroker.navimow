@@ -24,5 +24,13 @@
   "authCodeInvalid": "Esta URL no contiene ?code=. Copia la URL completa de la barra de direcciones del navegador después de iniciar sesión.",
   "connectionLabel": "Conexión",
   "connected": "Conectado",
-  "notConnected": "No conectado"
+  "notConnected": "No conectado",
+  "appHeader": "Control de zonas (API de app no oficial)",
+  "appInfo": "Opcional. Inicia zonas individuales y muestra el progreso por zona a través de la nube de la app Navimow. Es una API <b>no oficial</b> y de ingeniería inversa que puede dejar de funcionar tras una actualización de la app Navimow. Usa una <b>cuenta Navimow independiente</b> compartida con este robot, no tu cuenta principal, para evitar conflictos de sesión. La contraseña se guarda cifrada y solo se usa para iniciar sesión.",
+  "appEnabledLabel": "Activar control de zonas",
+  "appEnabledHelp": "Desactivado por defecto. Desactivado, el adaptador se comporta igual que sin esta función y no crea estados adicionales.",
+  "appEmailLabel": "Correo de la cuenta de la app",
+  "appEmailHelp": "Correo de la cuenta Navimow (compartida) usada para la API de la app.",
+  "appPasswordLabel": "Contraseña de la cuenta de la app",
+  "appPasswordHelp": "Se guarda cifrada. Solo se usa para iniciar y reiniciar sesión."
 }

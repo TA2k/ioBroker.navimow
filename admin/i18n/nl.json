@@ -24,5 +24,13 @@
   "authCodeInvalid": "Deze URL bevat geen ?code=. Kopieer na het inloggen de volledige URL uit de adresbalk van de browser.",
   "connectionLabel": "Verbinding",
   "connected": "Verbonden",
-  "notConnected": "Niet verbonden"
+  "notConnected": "Niet verbonden",
+  "appHeader": "Zonebesturing (onofficiële app-API)",
+  "appInfo": "Optioneel. Start afzonderlijke zones en toont de voortgang per zone via de Navimow-app-cloud. Dit is een <b>onofficiële</b>, gereverse-engineerde API die na een update van de Navimow-app kan stoppen met werken. Gebruik een <b>apart Navimow-account</b> dat met deze maaier is gedeeld, niet je hoofdaccount, om sessieconflicten te voorkomen. Het wachtwoord wordt versleuteld opgeslagen en alleen voor inloggen gebruikt.",
+  "appEnabledLabel": "Zonebesturing inschakelen",
+  "appEnabledHelp": "Standaard uit. Uitgeschakeld gedraagt de adapter zich precies als zonder deze functie en maakt hij geen extra datapunten aan.",
+  "appEmailLabel": "E-mail van app-account",
+  "appEmailHelp": "E-mail van het (gedeelde) Navimow-account voor de app-API.",
+  "appPasswordLabel": "Wachtwoord van app-account",
+  "appPasswordHelp": "Versleuteld opgeslagen. Alleen gebruikt voor in- en opnieuw inloggen."
 }

@@ -24,5 +24,13 @@
   "authCodeInvalid": "Diese URL enthält kein ?code=. Kopiere nach dem Login die komplette URL aus der Browser-Adressleiste.",
   "connectionLabel": "Verbindung",
   "connected": "Verbunden",
-  "notConnected": "Nicht verbunden"
+  "notConnected": "Nicht verbunden",
+  "appHeader": "Zonensteuerung (inoffizielle App-API)",
+  "appInfo": "Optional. Startet einzelne Zonen und zeigt den Fortschritt pro Zone über die Navimow-App-Cloud. Dies ist eine <b>inoffizielle</b>, zurückentwickelte API, die nach einem Update der Navimow-App nicht mehr funktionieren kann. Verwende ein <b>eigenes, für diesen Mäher freigegebenes Navimow-Konto</b>, nicht dein Hauptkonto, um Sitzungskonflikte zu vermeiden. Das Passwort wird verschlüsselt gespeichert und nur für die Anmeldung verwendet.",
+  "appEnabledLabel": "Zonensteuerung aktivieren",
+  "appEnabledHelp": "Standardmäßig aus. Ausgeschaltet verhält sich der Adapter genau wie ohne diese Funktion und legt keine zusätzlichen Datenpunkte an.",
+  "appEmailLabel": "E-Mail des App-Kontos",
+  "appEmailHelp": "E-Mail des (freigegebenen) Navimow-Kontos für die App-API.",
+  "appPasswordLabel": "Passwort des App-Kontos",
+  "appPasswordHelp": "Wird verschlüsselt gespeichert. Nur für An- und Neuanmeldung verwendet."
 }

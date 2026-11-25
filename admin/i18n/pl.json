@@ -24,5 +24,13 @@
   "authCodeInvalid": "Ten adres URL nie zawiera ?code=. Po zalogowaniu skopiuj pełny adres URL z paska adresu przeglądarki.",
   "connectionLabel": "Połączenie",
   "connected": "Połączono",
-  "notConnected": "Nie połączono"
+  "notConnected": "Nie połączono",
+  "appHeader": "Sterowanie strefami (nieoficjalne API aplikacji)",
+  "appInfo": "Opcjonalne. Uruchamia pojedyncze strefy i pokazuje postęp dla każdej strefy przez chmurę aplikacji Navimow. To <b>nieoficjalne</b>, odtworzone API, które może przestać działać po aktualizacji aplikacji Navimow. Użyj <b>osobnego konta Navimow</b> udostępnionego tej kosiarce, a nie konta głównego, aby uniknąć konfliktów sesji. Hasło jest przechowywane zaszyfrowane i używane tylko do logowania.",
+  "appEnabledLabel": "Włącz sterowanie strefami",
+  "appEnabledHelp": "Domyślnie wyłączone. Wyłączone, adapter działa dokładnie tak jak bez tej funkcji i nie tworzy dodatkowych stanów.",
+  "appEmailLabel": "E-mail konta aplikacji",
+  "appEmailHelp": "E-mail (udostępnionego) konta Navimow używanego do API aplikacji.",
+  "appPasswordLabel": "Hasło konta aplikacji",
+  "appPasswordHelp": "Przechowywane zaszyfrowane. Używane tylko do logowania i ponownego logowania."
 }

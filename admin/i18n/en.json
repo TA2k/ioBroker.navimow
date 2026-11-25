@@ -24,5 +24,13 @@
   "authCodeInvalid": "This URL contains no ?code=. Copy the complete URL from the browser address bar after the login.",
   "connectionLabel": "Connection",
   "connected": "Connected",
-  "notConnected": "Not connected"
+  "notConnected": "Not connected",
+  "appHeader": "Zone control (unofficial app API)",
+  "appInfo": "Optional. Starts single zones and shows progress per zone through the Navimow app cloud. This is an <b>unofficial</b>, reverse-engineered API and can stop working after a Navimow app update. Use a <b>separate Navimow account</b> shared with this mower, not your main account, to avoid session conflicts. The password is stored encrypted and used only for login.",
+  "appEnabledLabel": "Enable zone control",
+  "appEnabledHelp": "Off by default. When off, the adapter behaves exactly as without this feature and creates no extra states.",
+  "appEmailLabel": "App account e-mail",
+  "appEmailHelp": "E-mail of the (shared) Navimow account used for the app API.",
+  "appPasswordLabel": "App account password",
+  "appPasswordHelp": "Stored encrypted. Used only for login and re-login."
 }

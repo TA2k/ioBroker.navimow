@@ -121,6 +121,41 @@
       "xs": 12, "sm": 4, "md": 3, "lg": 3, "xl": 3,
       "label": "mapRenderIntervalLabel",
       "help": "mapRenderIntervalHelp"
+    },
+    "_app_header": {
+      "type": "header",
+      "text": "appHeader",
+      "size": 3,
+      "newLine": true
+    },
+    "_app_info": {
+      "type": "staticText",
+      "text": "appInfo",
+      "newLine": true,
+      "xs": 12, "sm": 12, "md": 12, "lg": 12, "xl": 12
+    },
+    "appEnabled": {
+      "type": "checkbox",
+      "newLine": true,
+      "xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6,
+      "label": "appEnabledLabel",
+      "help": "appEnabledHelp"
+    },
+    "appEmail": {
+      "type": "text",
+      "newLine": true,
+      "hidden": "!data.appEnabled",
+      "xs": 12, "sm": 6, "md": 5, "lg": 4, "xl": 4,
+      "label": "appEmailLabel",
+      "help": "appEmailHelp"
+    },
+    "appPassword": {
+      "type": "password",
+      "repeat": false,
+      "hidden": "!data.appEnabled",
+      "xs": 12, "sm": 6, "md": 5, "lg": 4, "xl": 4,
+      "label": "appPasswordLabel",
+      "help": "appPasswordHelp"
     }
   }
 }

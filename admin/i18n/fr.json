@@ -24,5 +24,13 @@
   "authCodeInvalid": "Cette URL ne contient pas ?code=. Copiez l’URL complète de la barre d’adresse du navigateur après la connexion.",
   "connectionLabel": "Connexion",
   "connected": "Connecté",
-  "notConnected": "Non connecté"
+  "notConnected": "Non connecté",
+  "appHeader": "Contrôle des zones (API d'application non officielle)",
+  "appInfo": "Facultatif. Démarre des zones individuelles et affiche la progression par zone via le cloud de l'application Navimow. Il s'agit d'une API <b>non officielle</b> issue de rétro-ingénierie, qui peut cesser de fonctionner après une mise à jour de l'application Navimow. Utilisez un <b>compte Navimow distinct</b> partagé avec cette tondeuse, et non votre compte principal, pour éviter les conflits de session. Le mot de passe est stocké chiffré et utilisé uniquement pour la connexion.",
+  "appEnabledLabel": "Activer le contrôle des zones",
+  "appEnabledHelp": "Désactivé par défaut. Désactivé, l'adaptateur se comporte exactement comme sans cette fonction et ne crée aucun état supplémentaire.",
+  "appEmailLabel": "E-mail du compte de l'application",
+  "appEmailHelp": "E-mail du compte Navimow (partagé) utilisé pour l'API de l'application.",
+  "appPasswordLabel": "Mot de passe du compte de l'application",
+  "appPasswordHelp": "Stocké chiffré. Utilisé uniquement pour la connexion et la reconnexion."
 }
